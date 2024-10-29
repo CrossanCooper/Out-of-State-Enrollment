@@ -3,7 +3,7 @@
 ## Last Modified: 10-29-24
 
 ## query HUD API and link town data to ACS data
-# Step 1: Town-ZIP from HUD
+# Step 1: Town-ZIP from HUD (@crossan: ERRORS HERE)
 # Step 2: ZIP-ZCTA from HRSA
 # Step 3: ACS data at ZCTA level from tidycensus()
 # Step 4: ACS ZCTA - Town
@@ -178,11 +178,12 @@ merge_acs_alabama <- merge(alabama_data, acs_data, by = c("town","state"))
 left_merged <- merge(alabama_data, acs_data, by = c("town", "state"), all.x = TRUE)
 unmatched_from_commencement <- left_merged[is.na(left_merged[,median_hh_income])]
 
-# e.g. alexander city -- abbreviated or misspelled (i can work on this)
+# improvements? e.g. alexander city -- abbreviated or misspelled (i can work on this)
+# vestavia hills and homewood are missing
 
-### ii. do some descriptive analysis
+### ii. descriptive analysis of in vs out trends (bar charts)
 
-merge_acs_alabama[, OutOfState := fifelse(state %flike% "al", "No", "Yes")]
+merge_acs_alabama[, OutOfState := fifelse(state %flike% "al", "In-State", "Out-of-State")]
 
 average_income_by_year <- merge_acs_alabama[, .(
   avg_median_hh_income = mean(median_hh_income, na.rm = TRUE)
@@ -191,15 +192,97 @@ average_income_by_year <- merge_acs_alabama[, .(
 
 average_income_by_year[, relative_to_2006 := avg_median_hh_income - avg_median_hh_income[Year == 2006], by = OutOfState]
 
-ggplot(average_income_by_year, aes(x = Year, y = relative_to_2006, fill = OutOfState)) +
-  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+income_relative_to_2006_levels <- ggplot(average_income_by_year, aes(x = Year, y = relative_to_2006, fill = OutOfState)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8, color = "black") +
   labs(
     x = "Year",
-    fill = "Out of State?",
-    y = "Average Town-Level HH Incomes (Relative to 2006)"
+    fill = "Student Type",
+    y = "Change in Average HH Income"
   ) +
   theme_bw() + removeGridX() + 
-  scale_fill_viridis_d() + ylim(-10000,50000) + 
+  scale_fill_viridis_d() + 
+  theme(legend.position = "bottom",
+        legend.background = element_rect(size = 0.25, linetype = "solid", colour = "black")) + 
+scale_y_continuous(limits = c(-5000,25000),
+                     breaks = c(-5000,0,5000,10000,15000,20000,25000),
+                     labels = c("-$5k","$0k","$5k","$10k","$15k","$20k","$25k"))
+
+print(income_relative_to_2006_levels)
+
+ggsave(here("figures","income_relative_to_2006_levels.png"),
+       plot = income_relative_to_2006_levels,width = 8, height = 4.5)
+
+
+
+
+average_income_by_year[, share_relative_to_2006 := ((avg_median_hh_income - avg_median_hh_income[Year == 2006])/avg_median_hh_income[Year == 2006])*100, by = OutOfState]
+
+income_relative_to_2006_percent <- ggplot(average_income_by_year, aes(x = Year, y = share_relative_to_2006, fill = OutOfState)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8, color = "black") +
+  labs(
+    x = "Year",
+    fill = "Student Type",
+    y = "Change in Average HH Income"
+  ) +
+  theme_bw() + removeGridX() + 
+  scale_fill_viridis_d() + 
+  theme(legend.position = "bottom",
+        legend.background = element_rect(size = 0.25, linetype = "solid", colour = "black")) + 
+  scale_y_continuous(limits = c(-5,25),
+                     breaks = c(-5,0,5,10,15,20,25),
+                     labels = c("-5%","0%","5%","10%","15%","20%","25%"))
+
+print(income_relative_to_2006_percent)
+
+ggsave(here("figures","income_relative_to_2006_percent.png"),
+       plot = income_relative_to_2006_percent,width = 8, height = 4.5)
+
+
+
+
+### iii. within alabama figures
+
+in_state_merge_acs <- merge_acs_alabama[(state %flike% "al")]
+in_state_merge_acs[, total_count_by_year := .N, by = Year]
+in_state_merge_acs[, share_in_state_students := .N / total_count_by_year, by = .(town, Year)]
+
+plot_data <- in_state_merge_acs[Year %in% c(2006, 2023)]
+
+ggplot(plot_data[median_hh_income <= 125000], aes(x = median_hh_income, fill = factor(Year))) +
+  geom_histogram(position = "identity", alpha = 0.6, bins = 60, color = "black") +
+  labs(
+    x = "Origin Location Median HH Income",
+    y = "Student Counts",
+    fill = "Year"
+  ) +
+  theme_bw() + removeGridX() + 
+  scale_fill_viridis_d() + 
   theme(legend.position = "bottom",
         legend.background = element_rect(size = 0.25, linetype = "solid", colour = "black"))
 
+unique_plot <- unique(plot_data, by = c("town","Year"))
+#  go wide across years
+unique_plot_wide <- dcast(unique_plot[Year %in% c(2006, 2023)], 
+                           town + median_hh_income ~ Year, 
+                           value.var = "share_in_state_students")
+# set shares to 0 if missing
+unique_plot_wide[, `2006` := fifelse(is.na(`2006`), 0, `2006`)]
+unique_plot_wide[, `2023` := fifelse(is.na(`2023`), 0, `2023`)]
+# 
+# unique_plot_wide[, change := 100*(`2023` - `2006`)]
+# 
+# ggplot(unique_plot_wide, aes(x = median_hh_income, y = change, size = `2006`)) +
+#   geom_point(alpha = 0.6, color = "#440154FF") +
+#   # geom_smooth(method = "lm", se = T, color = "#FDE725FF", linetype = "dashed") +  # Adds regression line
+#   labs(
+#     x = "Median Household Income",
+#     y = "Change in Student Share (2006-2023)"
+#   ) + theme_bw() + removeGridX() + 
+#   scale_x_continuous(limits = c(0,125000),
+#                      breaks = c(0,25000,50000,75000,100000,125000),
+#                      labels = c("$0k","$25k","$50k","$75k","$100k","$125k")) 
+
+  
+  
+  
+  
