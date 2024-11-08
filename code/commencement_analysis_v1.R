@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 9-10-24
+## Last Modified: 10-24-24
 
 ## explore alabama data (all commencements 2006-2024)
 #=====================================================================
@@ -100,6 +100,14 @@ bama_2022_dt[, Year := 2022]
 bama_2023_dt[, Year := 2023]
 bama_2024_dt[, Year := 2024]
 
+### combine into single file
+
+spring_all_dt <- rbind(bama_2006_dt, bama_2007_dt, bama_2008_dt, 
+                       bama_2009_dt, bama_2010_dt, bama_2011_dt, 
+                       bama_2012_dt, bama_2013_dt, bama_2014_dt,
+                       bama_2015_dt, bama_2016_dt, bama_2017_dt,
+                       bama_2018_2021_dt, bama_2022_dt, bama_2023_dt, 
+                       bama_2024_dt, fill = T)
 
 #=====================================================================
 # 1 - read and edit the summer and fall commencement data
@@ -132,13 +140,6 @@ summer_fall_2006_bachelors_dt <- summer_fall_2006_all_dt[Degree %flike% "Bachelo
 summer_fall_2018_bachelors_dt <- summer_fall_2018_all_dt[Degree %flike% "Bachelor" | Degree %flike% "B S"]
 summer_fall_2019_bachelors_dt <- summer_fall_2019_all_dt[Degree %flike% "Bachelor" | Degree %flike% "B.S."]
 summer_fall_2020_bachelors_dt <- summer_fall_2020_all_dt[Degree %flike% "Bachelor" | Degree %flike% "B S"]
-
-## match column names across years
-setnames(summer_fall_2016_bachelors_dt, "Degree", "Program")
-setnames(summer_fall_2006_bachelors_dt, "Degree", "Program")
-setnames(summer_fall_2018_bachelors_dt, "Degree", "Program")
-setnames(summer_fall_2019_bachelors_dt, "Degree", "Program")
-setnames(summer_fall_2020_bachelors_dt, "Degree", "Program")
 
 ### add year to all files
 summer_fall_2006_bachelors_dt[, Year := 2006]
@@ -237,33 +238,25 @@ su_fa_21_dt, su_fa_22_dt, su_fa_23_dt, su_24_dt, fill = T)
 for_plot_su_fa_dt <- su_fa_all_dt[,c(2,5)]
 
 #=====================================================================
-# 3 - time series out-of-state plot (spring only)
+# 4 - time series out-of-state plot (all commencements)
 #=====================================================================
-
-
-spring_all_dt <- rbind(bama_2006_dt, bama_2007_dt, bama_2008_dt, 
-                            bama_2009_dt, bama_2010_dt, bama_2011_dt, 
-                            bama_2012_dt, bama_2013_dt, bama_2014_dt,
-                            bama_2015_dt, bama_2016_dt, bama_2017_dt,
-                            bama_2018_2021_dt, bama_2022_dt, bama_2023_dt, 
-                            bama_2024_dt, fill = T)
 
 for_plot_2006_dt <- bama_2006_dt[,c(4,5)]
 for_plot_2007_dt <- bama_2007_dt[,c(2,5)]
-for_plot_2008_dt <- bama_2008_dt[,c(4,5)]
-for_plot_2009_dt <- bama_2009_dt[,c(4,5)]
-for_plot_2010_dt <- bama_2010_dt[,c(4,5)]
-for_plot_2011_dt <- bama_2011_dt[,c(4,5)]
-for_plot_2012_dt <- bama_2012_dt[,c(4,5)]
-for_plot_2013_dt <- bama_2013_dt[,c(4,5)]
-for_plot_2014_dt <- bama_2014_dt[,c(4,5)]
-for_plot_2015_dt <- bama_2015_dt[,c(4,5)]
-for_plot_2016_dt <- bama_2016_dt[,c(4,5)]
-for_plot_2017_dt <- bama_2017_dt[,c(4,5)]
+for_plot_2008_dt <- bama_2008_dt[,c(5,6)]
+for_plot_2009_dt <- bama_2009_dt[,c(5,6)]
+for_plot_2010_dt <- bama_2010_dt[,c(5,6)]
+for_plot_2011_dt <- bama_2011_dt[,c(5,6)]
+for_plot_2012_dt <- bama_2012_dt[,c(5,6)]
+for_plot_2013_dt <- bama_2013_dt[,c(5,6)]
+for_plot_2014_dt <- bama_2014_dt[,c(5,6)]
+for_plot_2015_dt <- bama_2015_dt[,c(5,6)]
+for_plot_2016_dt <- bama_2016_dt[,c(5,6)]
+for_plot_2017_dt <- bama_2017_dt[,c(5,6)]
 for_plot_2018_2021_dt <- bama_2018_2021_dt[,c(3,5)]
-for_plot_2022_dt <- bama_2022_dt[,c(4,5)]
-for_plot_2023_dt <- bama_2023_dt[,c(4,5)]
-for_plot_2024_dt <- bama_2024_dt[,c(4,5)]
+for_plot_2022_dt <- bama_2022_dt[,c(5,6)]
+for_plot_2023_dt <- bama_2023_dt[,c(5,6)]
+for_plot_2024_dt <- bama_2024_dt[,c(5,6)]
 
 combined_spring_dt <- rbind(for_plot_2006_dt, for_plot_2007_dt, for_plot_2008_dt, 
                      for_plot_2009_dt, for_plot_2010_dt, for_plot_2011_dt, 
@@ -294,6 +287,8 @@ bar_plot <- ggplot(for_plot_all_years_dt, aes(x = Year, y = Share, group = Origi
   geom_bar(stat = "identity", position = "dodge") + theme_bw() + scale_fill_brewer(palette = "Paired") + removeGridX() + 
   ylim(0,100) + ylab("% of Undergraduate Degree Recipients")
 
+print(bar_plot)
+
 ggsave(here("figures","trends_enrollment.png"), plot = bar_plot,
        width = 8, height = 4.5)
 
@@ -313,12 +308,14 @@ area_plot <- ggplot(for_area_plot_dt[Year <= 2023], aes(x = Year, y = RelativeTo
   geom_area() + theme_bw() + scale_fill_manual(values = c("#B2DF8A", "#1F78B4","#A6CEE3")) + removeGridX() + 
   ylab("# of Degree Recipients Relative to 2006") + xlim(2006,2023)
 
+print(area_plot)
+
 ggsave(here("figures","trends_enrollment_area.png"), plot = area_plot,
        width = 8, height = 4.5)
 
 
 #=====================================================================
-# 4 - 2006 vs 2023 state shares plot
+# 5 - 2006 vs 2023 state shares plot
 #=====================================================================
 
 bachelors_06_spring_dt <- bama_2006_dt[Degree %flike% "Bachelor"]
@@ -356,8 +353,8 @@ slope_text <- paste("Slope:", round(slope,2))
 ### FIGURE 3
 
 shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares23)) + 
-  geom_point(color = "#A6CEE3") + theme_bw() +
-  geom_abline(slope = 1, intercept = 0, color = "#1F78B4", linetype = "dashed") + 
+  geom_point(color = "#A6CEE3", size = 3, alpha = 0.8) + theme_bw() +
+  geom_abline(slope = 1, intercept = 0, color = "#1F78B4", linetype = "dashed", linewidth = 1) + 
   # geom_smooth(method = "lm", se = T, color = "blue", linetype = "dashed") + 
   annotate("text", x = 2, y = 9, label = "IL", hjust = 1.1, vjust = 2, size = 4,
         color = "#33A02C") + 
@@ -367,22 +364,28 @@ shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares2
            color = "#33A02C") + 
   annotate("text", x = 3.2, y = 6, label = "CA", hjust = 1.1, vjust = 2, size = 4,
            color = "#33A02C") + 
-  labs(y = "2023 Share of Out-of-State Students", x = "2006 Share of Out-of-State Students") + ylim(0,15) + xlim(0,25)
+  labs(y = "2023 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25)
+
+print(shares_plot)
 
 ggsave(here("figures","oos_shares_plot.png"), plot = shares_plot,
        width = 8, height = 4.5)
 
 #=====================================================================
-# 5 - combine all files and clean names
+# 6 - combine all files and clean names
 #=====================================================================
 
 spring_all_dt[, Commencement := "Spring"]
-setnames(spring_all_dt, c("Degree"), c("Program"))
+# setnames(spring_all_dt, c("Degree"), c("Program"))
 su_fa_all_dt[, Commencement := "Summer or Fall"]
 
 all_bachelors_dt <- rbind(spring_all_dt, su_fa_all_dt, fill = T)
 
-all_bachelors_dt[36358, Name := "Brelahn Josephine Wyatt"]
+# weird name error (replace non unicode character)
+all_bachelors_dt[36359, Name := "Brelahn Josephine Wyatt"]
+
+### fill in null honors with "No"
+all_bachelors_dt[,Honors := fifelse(is.na(Honors) | Honors %flike% "posthumous", "No", Honors)]
 
 # Function to split names and extract first, middle, last names, handling suffixes
 extract_names <- function(name) {
@@ -435,13 +438,15 @@ all_bachelors_dt[, `:=`(
   suffix = unlist(lapply(suffix, as.character))
 )]
 
-# 106366 unique values
+# 106362 unique values
 nrow(unique(all_bachelors_dt, by = c("first_name", "middle_name", "last_name", "suffix", "Year")))
 
-setnames(all_bachelors_dt, c("Location","State"), c("Origin Location", "Origin State"))
+setnames(all_bachelors_dt, c("Location","State"), c("Origin Town", "Origin State"))
+
+fwrite(all_bachelors_dt, here("data","all_alabama_data.csv"))
 
 #=====================================================================
-# 6 - combine with revelio data
+# 7 - combine with revelio data
 #=====================================================================
 
 revelio_dt <- fread(here("revelio_data","linked_revelio_data"))
@@ -450,25 +455,29 @@ revelio_dt[, count := .N, by = .(fullname, startdate, enddate)]
 
 revelio_dt[, lastUpdate := as.Date(updated_dt, format = "%m/%d/%y")]
 
+# only keep the last update for each individual (some individuals 
+# have duplicate entries)
 result_dt <- revelio_dt[, .SD[which.max(lastUpdate)], by = .(fullname, startdate, enddate)]
 
+# modest duplication? first returns 105746, second returns 104327
 nrow(unique(result_dt, by = c("fullname", "startdate","enddate")))
 nrow(unique(result_dt, by = c("user_id")))
 
 result_dt[, count := .N, by = .(user_id)]
 
+# only keep earliest start date for each user id
 almost_final_revelio_dt <- result_dt[, .SD[which.min(startdate)], by = .(user_id)]
 
 nrow(unique(almost_final_revelio_dt, by = c("fullname","enddate")))
 
 almost_final_revelio_dt[, count := .N, by = .(fullname, enddate)]
 
+# only keep earliest start date for each name and end date
 final_revelio_dt <- almost_final_revelio_dt[, .SD[which.min(startdate)], by = .(fullname, enddate)]
 
+# match user_id to full name and end date: 104059 in each
 nrow(unique(final_revelio_dt, by = c("fullname","enddate")))
 nrow(unique(final_revelio_dt, by = c("user_id")))
-
-# amount those with count > 1, pick most recent update (updated_dt)
 
 # function to remove all non-English language characters and keep only basic characters
 clean_fullname <- function(name) {
@@ -497,18 +506,28 @@ final_revelio_dt[, `:=`(
 
 final_revelio_dt[, Year := year(enddate)]
 
-nrow(unique(final_revelio_dt, by = c("fullname","enddate")))
-nrow(unique(final_revelio_dt, by = c("user_id")))
+# we now lose some people because we drop columns where fullname is NULL
+nrow(unique(final_revelio_dt, by = c("fullname","enddate"))) # 103663
+nrow(unique(final_revelio_dt, by = c("user_id"))) # 103869
 
 
 formatch_revelio_dt <- final_revelio_dt[, .SD[which.max(lastUpdate)], by = .(first_name, last_name, Year)]
 
+# 98050 for both calls
 nrow(unique(formatch_revelio_dt, by = c("first_name","last_name","Year")))
 nrow(unique(formatch_revelio_dt, by = c("user_id")))
 
+# write to output
+fwrite(formatch_revelio_dt, here("data","cleaned_ua_revelio.csv"))
+
 ### PERFORM INITIAL MERGE
 
-formatch_bachelors_dt <- unique(all_bachelors_dt, by = c("Name", "Origin Location", "Year"))
+## NOTE: should i first try to match on program? need to do some cleaning first?
+
+formatch_bachelors_dt <- unique(all_bachelors_dt, by = c("Name", "Origin Town", "Year"))
+
+# quick name check
+name_check_bachelors_dt <- unique(formatch_bachelors_dt[,.(first_name)], by = "first_name")
 
 formatch_revelio_dt[, merged_flag_revelio := 1]
 formatch_bachelors_dt[, merged_flag_bachelors := 1]
@@ -518,9 +537,9 @@ merged_dt <- merge(
   formatch_revelio_dt, 
   formatch_bachelors_dt, 
   by = c("first_name","last_name", "Year"), 
-  all = T)
+  all = F)
 
-merged_dt[, merged_flag := fifelse(merged_flag_revelio == 1 & merged_flag_bachelors == 1, 1, 0)]
+# merged_dt[, merged_flag := fifelse(merged_flag_revelio == 1 & merged_flag_bachelors == 1, 1, 0)]
 
 nrow(unique(merged_dt, by = c("user_id")))
 nrow(unique(merged_dt, by = c("first_name","last_name","Year")))
@@ -532,6 +551,8 @@ nrow(unique(merged_dt[merged_flag == 1], by = c("first_name","last_name","Year")
 # who didn't merge?
 
 unmerged_dt <- merged_dt[is.na(merged_flag)]
+
+unmerged_ua_dt <- unmerged_dt[merged_flag_bachelors == 1]
 
 ### PERFORM SECOND MERGE
 
