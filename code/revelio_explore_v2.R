@@ -38,15 +38,15 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
 #                   user='crossancooper')
 # 
 # query <- paste0("
-# SELECT * 
-# FROM revelio_individual.individual_positions 
+# SELECT *
+# FROM revelio_individual.individual_positions
 # WHERE user_id IN (", user_ids_string, ")")
 # 
 # # query a database
 # res <- dbSendQuery(wrds, query)
 # all_ua_jobs_data <- dbFetch(res, n = -1)
 # dbClearResult(res)
-# 
+
 # # set as DT
 # job_spell_ua_dt <- setDT(all_ua_jobs_data)
 # 
@@ -59,6 +59,26 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
 #=====================================================================
 
 # profile_dt <- fread(here("revelio_data","revelio_query_profile.csv"), nrows = 1000)
+
+### BRIEF ASIDE -- REVELIO LABS US DATA ###
+firms_dt <- fread(here("revelio_data","all_firms_revelio.csv"))
+setnames(firms_dt, old = "ultimate_parent_rcid", new = "rcid")
+
+firm_counts_dt <- fread(here("revelio_data","firm_sample_2023.csv"))
+us_firm_counts_dt <- firm_counts_dt[country %flike% "United States"]
+us_firm_counts_dt <- us_firm_counts_dt[datemonth %flike% "2023-07-01"]
+us_firm_counts_dt <- us_firm_counts_dt[, Sum := round(sum(count)), .(rcid)]
+us_firm_counts_dt <- unique(us_firm_counts_dt, by = "rcid")
+us_firm_counts_dt <- us_firm_counts_dt[,-c(2,4)]
+
+merge_firms <- merge(firms_dt, us_firm_counts_dt, by = "rcid")
+merge_firms <- unique(merge_firms, by = "rcid")
+
+sampled_dt <- merge_firms[sample(.N, 1000)]
+sampled_dt <- sampled_dt[,c(3)]
+
+fwrite(sampled_dt, file = here('revelio_data','random_us_firm_sample.csv'))
+
 
 ### CHECK THE JOB SPELL DATA
 
