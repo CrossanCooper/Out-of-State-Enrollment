@@ -1,8 +1,14 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 8-20-24
+## Last Modified: 11-14-24
 
-## explore revelio data
+## file use: find UA students in revelio education data
+##
+## data outputs:
+# (i) revelio_data/bama_students.csv -- list of all UA students
+# (ii) revelio_data/tuscaloosa_students.csv -- list of all UA flagship students
+# (iii) revelio_data/tuscaloosa_student_id_list.csv -- unique user id's from
+# from flagship students (for querying job posting data)
 #=====================================================================
 
 #=====================================================================
@@ -79,15 +85,3 @@ ua_ids <- ua_dt[,.N,.(user_id)]
 ids_list <- ua_ids[,1]
 
 fwrite(ids_list, here("revelio_data","tuscaloosa_student_id_list.csv"))
-
-#=====================================================================
-# 2 - read and edit the profile data (not super useful?)
-#=====================================================================
-
-profile_dt <- fread(here("revelio_data","revelio_query_profile.csv"), nrows = 1000)
-
-#=====================================================================
-# 3 - read and edit the job positions data
-#=====================================================================
-
-test_positions_dt <- fread(here("revelio_data","revelio_positions_test.csv"), nrows = 1000)
