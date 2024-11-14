@@ -11,9 +11,9 @@
 # (iii) data/revelio_destinations.csv -- ?
 ##
 ## figure outputs:
-# (i) figures/trends_enrollment_area.png -- 
-# (ii) figures/trends_enrollment.png -- 
-# (iii) figures/oos_shares_plot.png -- 
+# (i) figures/trends_enrollment_area.png -- enrollment trends as area plot
+# (ii) figures/trends_enrollment.png -- enrollment trends as bar plot
+# (iii) figures/oos_shares_plot.png -- 2006 vs. 2023 oos student shares by state
 #=====================================================================
 
 #=====================================================================
