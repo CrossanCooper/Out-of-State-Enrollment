@@ -1,8 +1,14 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 8-27-24
+## Last Modified: 11-14-24
 
-## query revelio data
+## file use: query revelio database using UA user id's
+##
+## data outputs: 
+# (i) revelio_data/job_spells_data_ua.csv -- job spell data
+# from Revelio for all UA Tuscaloosa grads
+# (ii) revelio_data/linked_revelio_data -- Revelio labs:
+#  linking education records to student names from profile data
 #=====================================================================
 
 #=====================================================================
@@ -20,7 +26,7 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                doParallel,readxl,did,ggExtra, remotes, RPostgres)
 
 #=====================================================================
-# 1 - query the job positions data (Commented out)
+# 1 - query the job positions data (@RYAN: commented out)
 #=====================================================================
 
 # # 131296 unique user id's
@@ -55,38 +61,16 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
 # fwrite(job_spell_ua_dt, here("revelio_data", "job_spells_data_ua.csv"))
 
 #=====================================================================
-# 2 - find the analysis sample
+# 2 - find the analysis sample by restricting to post 2006 / bachelors
 #=====================================================================
 
-# profile_dt <- fread(here("revelio_data","revelio_query_profile.csv"), nrows = 1000)
-
-### BRIEF ASIDE -- REVELIO LABS US DATA ###
-firms_dt <- fread(here("revelio_data","all_firms_revelio.csv"))
-setnames(firms_dt, old = "ultimate_parent_rcid", new = "rcid")
-
-firm_counts_dt <- fread(here("revelio_data","firm_sample_2023.csv"))
-us_firm_counts_dt <- firm_counts_dt[country %flike% "United States"]
-us_firm_counts_dt <- us_firm_counts_dt[datemonth %flike% "2023-07-01"]
-us_firm_counts_dt <- us_firm_counts_dt[, Sum := round(sum(count)), .(rcid)]
-us_firm_counts_dt <- unique(us_firm_counts_dt, by = "rcid")
-us_firm_counts_dt <- us_firm_counts_dt[,-c(2,4)]
-
-merge_firms <- merge(firms_dt, us_firm_counts_dt, by = "rcid")
-merge_firms <- unique(merge_firms, by = "rcid")
-
-sampled_dt <- merge_firms[sample(.N, 1000)]
-sampled_dt <- sampled_dt[,c(3)]
-
-fwrite(sampled_dt, file = here('revelio_data','random_us_firm_sample.csv'))
-
-
-### CHECK THE JOB SPELL DATA
+### (i) CHECK THE JOB SPELL DATA (post 2006 jobs)
 
 job_spell_ua_dt <- fread(here("revelio_data", "job_spells_data_ua.csv"))
 # select only the job spells after 2006
 within_sample_ua_dt <- job_spell_ua_dt[startdate >= "2006-01-01"]
 
-### CHECK THE EDUCATION RECORDS SAMPLE 
+### (ii) CHECK THE EDUCATION RECORDS SAMPLE (post 2006 degree, only bachelors)
 
 all_ua_students <- fread(here("revelio_data","revelio_tuscaloosa_students.csv"))
 # post 2006
@@ -94,14 +78,13 @@ post_2006_students <- all_ua_students[enddate >= "2006-01-01" & enddate < "2025-
 # bachelors degree
 bachelors_post_2006 <- post_2006_students[degree %flike% "Bachelor" | degree == ""]
 
-### CHECK THE USER PROFILE DATA
+### (iii) CHECK THE USER PROFILE DATA (remove blank names)
 
 ua_profiles_dt <- fread(here("revelio_data", "revelio_ua_student_names.csv"))
 
 ua_profiles_final_dt <- ua_profiles_dt[!(fullname %flike% "" &  fullname %flike% "-")]
 
-
-### LINK NAMES AND ED RECORDS
+### (iv) LINK NAMES AND ED RECORDS (on user_id)
 
 combined_names_ua_dt <- merge(bachelors_post_2006, ua_profiles_final_dt, by = "user_id")
 
