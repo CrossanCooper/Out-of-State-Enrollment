@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 8-22-24
+## Last Modified: 12-27-24
 
 ## analyze public data from chetty, friedman, deming wp
 #=====================================================================
@@ -74,25 +74,25 @@ dt_summary_in <- dt_3b[, .(mean_instate = mean(rel_attend_instate, na.rm = T)), 
 
 
 chetty_plot_1a <- ggplot(dt_summary_oo, aes(x = par_income_lab, y = mean_oostate, fill = Conference)) +
-  geom_bar(stat = "identity", position = "dodge") +
+  geom_bar(stat = "identity", position = "dodge", color = 'black', alpha = 0.8) +
   labs(x = "Parental Income Percentile",
     y = "Relative Attendance Rate",
     fill = "Conference"
   ) +
-  theme_bw() + removeGridX() + scale_fill_brewer(palette = "Paired") + 
-  annotate("rect", xmin = 6.475, xmax = 12.525, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
+  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
 
 ggsave(here("figures","chetty_plot_sec_oostate.png"), plot = chetty_plot_1a,
        width = 8, height = 4.5)
 
 chetty_plot_1b <- ggplot(dt_summary_in, aes(x = par_income_lab, y = mean_instate, fill = Conference)) +
-  geom_bar(stat = "identity", position = "dodge") +
+  geom_bar(stat = "identity", position = "dodge", color = 'black', alpha = 0.8) +
   labs(x = "Parental Income Percentile",
        y = "Relative Attendance Rate",
        fill = "Conference"
   ) +
-  theme_bw() + removeGridX() + scale_fill_brewer(palette = "Paired") + 
-  annotate("rect", xmin = 6.475, xmax = 12.525, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
+  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
 
 ggsave(here("figures","chetty_plot_sec_instate.png"), plot = chetty_plot_1b,
        width = 8, height = 4.5)
