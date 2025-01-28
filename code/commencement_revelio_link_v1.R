@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 11-15-24
+## Last Modified: 1-28-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -248,7 +248,7 @@ su_fa_all_dt <- rbind(su_fa_06_dt, su_fa_07_dt, su_fa_08_dt,
 for_plot_su_fa_dt <- su_fa_all_dt[,c(2,5)]
 
 #=====================================================================
-# 4 - time series out-of-state plot (all commencements)
+# 2 - time series out-of-state plot (all commencements)
 #=====================================================================
 
 for_plot_2006_dt <- bama_2006_dt[,c(4,5)]
@@ -294,8 +294,13 @@ for_plot_all_years_dt[, Origin := factor(Origin, levels = c("In-State", "Out-of-
 ### i. bar plot 
 
 bar_plot <- ggplot(for_plot_all_years_dt, aes(x = Year, y = Share, group = Origin, fill = Origin)) + 
-  geom_bar(stat = "identity", position = "dodge") + theme_bw() + scale_fill_brewer(palette = "Paired") + removeGridX() + 
-  ylim(0,100) + ylab("% of Undergraduate Degree Recipients")
+  geom_bar(stat = "identity", position = "dodge", color = 'black', alpha = 0.8) + theme_bw() + scale_fill_viridis_d() + removeGridX() + 
+  ylim(0,100) + ylab("% of Undergraduate Degree Recipients") +  xlim(2005.3,2023.6) + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)) 
+
 
 print(bar_plot)
 
@@ -315,8 +320,12 @@ for_area_plot_dt[, RelativeTo2006 := fcase(
 for_area_plot_dt[, Origin := factor(Origin, levels = c( "International","Out-of-State", "In-State"))]
 
 area_plot <- ggplot(for_area_plot_dt[Year <= 2023], aes(x = Year, y = RelativeTo2006, group = Origin, fill = Origin)) + 
-  geom_area() + theme_bw() + scale_fill_manual(values = c("#B2DF8A", "#1F78B4","#A6CEE3")) + removeGridX() + 
-  ylab("# of Degree Recipients Relative to 2006") + xlim(2006,2023)
+  geom_area(alpha = 0.8) + theme_bw() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
+  ylab("# of Degree Recipients Relative to 2006") + xlim(2006,2023) + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)) 
 
 print(area_plot)
 
@@ -364,18 +373,18 @@ slope_text <- paste("Slope:", round(slope,2))
 ### ii. Produce Figure 3 (06 vs 23 shares)
 
 shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares23)) + 
-  geom_point(color = "#A6CEE3", size = 3, alpha = 0.8) + theme_bw() +
-  geom_abline(slope = 1, intercept = 0, color = "#1F78B4", linetype = "dashed", linewidth = 1) + 
+  geom_point(color = "#FDE725FF", size = 3, alpha = 0.8) + theme_bw() +
+  geom_abline(slope = 1, intercept = 0, color = "#440154FF", linetype = "dashed", linewidth = 1) + 
   # geom_smooth(method = "lm", se = T, color = "blue", linetype = "dashed") + 
   annotate("text", x = 2, y = 9, label = "IL", hjust = 1.1, vjust = 2, size = 4,
-           color = "#33A02C") + 
+           color = "#21908CFF") + 
   annotate("text", x = 24.6, y = 12.4, label = "GA", hjust = 1.1, vjust = 2, size = 4,
-           color = "#33A02C") + 
+           color = "#21908CFF") + 
   annotate("text", x = 17.3, y = 8.2, label = "TN", hjust = 1.1, vjust = 2, size = 4,
-           color = "#33A02C") + 
+           color = "#21908CFF") + 
   annotate("text", x = 3.2, y = 6, label = "CA", hjust = 1.1, vjust = 2, size = 4,
-           color = "#33A02C") + 
-  labs(y = "2023 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25)
+           color = "#21908CFF") + 
+  labs(y = "2023 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25) 
 
 print(shares_plot)
 
@@ -404,7 +413,8 @@ extract_names <- function(name) {
   parts <- unlist(strsplit(name, " "))
   
   # define common suffixes
-  suffixes <- c("Jr.", "Sr.", "II", "III", "IV", "V", 'PhD', "(posthumous)")
+  suffixes <- c("Jr", "Jr.", "Sr.", "II", "III", "IV", "V",
+                "RN", "Bsn", 'PhD', "BSN", "(posthumous)")
   
   # check if the last part is a suffix
   has_suffix <- parts[length(parts)] %in% suffixes
@@ -449,7 +459,7 @@ all_bachelors_dt[, `:=`(
   suffix = unlist(lapply(suffix, as.character))
 )]
 
-# 106362 unique values (currently at 49.5% match rate)
+# 106362 unique values (currently at xxx% match rate)
 nrow(unique(all_bachelors_dt, by = c("first_name", "middle_name", "last_name", "suffix", "Year")))
 
 setnames(all_bachelors_dt, c("Location","State"), c("Origin Town", "Origin State"))
@@ -471,8 +481,10 @@ fwrite(all_bachelors_dt, here("data","all_alabama_data.csv"))
 
 revelio_dt <- fread(here("revelio_data","linked_revelio_data.csv"))
 
-# process name strings -- REMOVES SUFFIXES POST COMMAS
+# process name strings -- removes suffixes
 revelio_dt[, fullname := sub(",.*","", fullname)]
+revelio_dt[, fullname := gsub("\\.", "", fullname)]
+revelio_dt[, fullname := sub("\\s+(jr|sr|iii|iv|v)$", "", fullname, ignore.case = TRUE)]
 
 revelio_dt[, count := .N, by = .(fullname, startdate, enddate)]
 
@@ -482,7 +494,7 @@ revelio_dt[, lastUpdate := as.Date(updated_dt, format = "%m/%d/%y")]
 ###     have duplicate entries)
 result_dt <- revelio_dt[, .SD[which.max(lastUpdate)], by = .(fullname, startdate, enddate)]
 
-# modest duplication? first returns 105746, second returns 104327
+# modest duplication? first returns xxx, second returns xxx
 nrow(unique(result_dt, by = c("fullname", "startdate","enddate")))
 nrow(unique(result_dt, by = c("user_id")))
 
@@ -498,7 +510,7 @@ almost_final_revelio_dt[, count := .N, by = .(fullname, enddate)]
 ### iv. only keep earliest start date for each name and end date
 final_revelio_dt <- almost_final_revelio_dt[, .SD[which.min(startdate)], by = .(fullname, enddate)]
 
-# match user_id 1-to-1 to full name and end date: 104059 in each
+# match user_id 1-to-1 to full name and end date
 nrow(unique(final_revelio_dt, by = c("fullname","enddate")))
 nrow(unique(final_revelio_dt, by = c("user_id")))
 
@@ -515,6 +527,9 @@ clean_fullname <- function(name) {
 ### vi. Apply the function to the fullname column
 final_revelio_dt[, fullname := sapply(fullname, clean_fullname)]
 final_revelio_dt <- final_revelio_dt[fullname != ""]
+## removing nursing prefixes and suffixes
+final_revelio_dt[, fullname := trimws(gsub("\\b(BSN|RN|DNP|DNP FNP MSN MPH MHA)\\b", "", fullname))]
+# apply extract_names from previous function
 final_revelio_dt[, c("first_name", "middle_name", "last_name", "suffix") := 
                    transpose(lapply(fullname, extract_names))]
 
@@ -528,12 +543,12 @@ final_revelio_dt[, `:=`(
 final_revelio_dt[, Year := year(enddate)]
 
 # note: we now lose some people because we drop columns where fullname is NULL
-nrow(unique(final_revelio_dt, by = c("fullname","enddate"))) # 103663
-nrow(unique(final_revelio_dt, by = c("user_id"))) # 103869
+nrow(unique(final_revelio_dt, by = c("fullname","enddate"))) # xxx
+nrow(unique(final_revelio_dt, by = c("user_id"))) # xxx
 
 formatch_revelio_dt <- final_revelio_dt[, .SD[which.max(lastUpdate)], by = .(first_name, last_name, Year)]
 
-# 98,055 for both calls (98k)
+# 98,034 for both calls
 nrow(unique(formatch_revelio_dt, by = c("first_name","last_name","Year")))
 nrow(unique(formatch_revelio_dt, by = c("user_id")))
 
@@ -545,7 +560,8 @@ fwrite(formatch_revelio_dt, here("data","cleaned_ua_revelio.csv"))
 #=====================================================================
 
 ### i. Perform initial merge -- first name, last name, graduation year
-formatch_bachelors_dt <- unique(all_bachelors_dt, by = c("Name", "Origin Town", "Year"))
+formatch_bachelors_dt <- unique(all_bachelors_dt[!(Name %flike% "posthumous") & !(Honors %flike% "Posthumous")], 
+                                by = c("Name", "Origin Town", "Year"))
 
 # quick name check
 name_check_bachelors_dt <- unique(formatch_bachelors_dt[,.(first_name)], by = "first_name")
@@ -560,7 +576,7 @@ merged_dt <- merge(
   by = c("first_name","last_name", "Year"), 
   all = F)
 
-# 48.7k unique by user_id and name / year
+# 48,893 unique by user_id and name / year
 nrow(unique(merged_dt, by = c("user_id")))
 nrow(unique(merged_dt, by = c("first_name","last_name","Year")))
 
@@ -599,6 +615,7 @@ unmerged_bachelors_dt[, abbreviated_first_name := fcase(
   grepl("^carol", first_name), "carol",
   grepl("^chad", first_name), "chad",
   grepl("^chris", first_name), "chris",
+  grepl("^clayton", first_name), "clay",
   grepl("^christi", first_name), "christi",
   grepl("^cole", first_name), "cole",
   grepl("^cori", first_name), "cori",
@@ -667,7 +684,7 @@ unmerged_bachelors_dt[, abbreviated_first_name := fcase(
   grepl("^tyler", first_name), "ty",
   grepl("^william", first_name), "will",
   grepl("^zachary", first_name), "zach",
-  
+  grepl("^zak", first_name), "zak",
   # Default case: NA if no match
   default = NA_character_
 )]
@@ -708,4 +725,178 @@ nrow(unique(merged_middle_dt, by = c("user_id")))
 nrow(unique(merged_middle_dt, by = c("middle_as_first_name","last_name","Year")))
 
 
-### iv. validation check -- look at field in revelio vs degree in commencement data
+### iv. Perform the 4th merge -- first name, last name (minus hyphen), and year
+
+unmerged_bachelors_rd3_dt <- unmerged_bachelors_rd2_dt[!merged_middle_dt, on = c("middle_as_first_name", "last_name", "Year")]
+unmerged_revelio_rd3_dt <- unmerged_revelio_rd2_dt[!merged_middle_dt, on = c("middle_as_first_name", "last_name", "Year")]
+
+unmerged_bachelors_rd3_dt[, last_name_clean := sub("-.*$", "", last_name)]
+unmerged_revelio_rd3_dt[, last_name_clean := last_name]
+
+merged_no_hyphen_dt <- merge(
+  unmerged_revelio_rd3_dt,
+  unmerged_bachelors_rd3_dt,
+  by = c("first_name","last_name_clean", "Year"),
+  all = F)
+
+# additional 35 unique by user_id and name / year (> 2%)
+nrow(unique(merged_no_hyphen_dt, by = c("user_id")))
+nrow(unique(merged_no_hyphen_dt, by = c("first_name","last_name_clean","Year")))
+
+### v. Perform the 5th merge -- first name, year, final initial, and field (sync fields across bachelors and revelio -- done)
+
+unmerged_bachelors_rd4_dt <- unmerged_bachelors_rd3_dt[!merged_no_hyphen_dt, on = c("first_name", "last_name_clean", "Year")]
+unmerged_revelio_rd4_dt <- unmerged_revelio_rd3_dt[!merged_no_hyphen_dt, on = c("first_name", "last_name_clean", "Year")]
+
+unmerged_bachelors_rd4_dt[, clean_field := fcase(
+  Degree %flike% "Music", "Music",
+  Degree %flike% "Business", "Business",
+  Degree %flike% "Engineering", "Engineering",
+  Degree %flike% "Microbiology", "Biology",
+  Degree %flike% "Chemistry", "Chemistry",
+  Degree %flike% "Education", "Education",
+  Degree %flike% "Communication", "Information Science",
+  Degree %flike% "Nursing", "Nursing",
+  default = "Other"
+)]
+
+unmerged_bachelors_rd4_dt[, final_initial := substr(last_name, 1, 1)]
+
+unmerged_revelio_rd4_dt[, clean_field := fcase(
+  field %flike% "Music", "Music",
+  field %flike% "Business" | field %flike% "Accounting" | field %flike% "Finance" | 
+    field %flike% "Marketing", "Business",
+  field %flike% "Engineering", "Engineering",
+  field %flike% "Biology", "Biology",
+  field %flike% "Chemistry", "Chemistry",
+  field %flike% "Education", "Education",
+  field %flike% "Information", "Information Science",
+  field %flike% "Nursing", "Nursing",
+  default = "Other"
+)]
+
+unmerged_revelio_rd4_dt[, final_initial := substr(last_name, 1, 1)]
+unmerged_revelio_rd4_for_merge_dt <- unmerged_revelio_rd4_dt[nchar(last_name) == 1]
+
+
+merged_first_name_field_dt <- merge(
+  unmerged_bachelors_rd4_dt,
+  unmerged_revelio_rd4_for_merge_dt,
+  by = c("first_name","clean_field", "final_initial","Year"),
+  all = F)
+
+# additional 868 unique by user_id and name / year (0.8%) 
+nrow(unique(merged_first_name_field_dt, by = c("user_id")))
+nrow(unique(merged_first_name_field_dt, by = c("first_name","clean_field","final_initial", "Year")))
+
+### vi. Perform the 6th merge -- for those with probability female >= 99%
+# first name, middle name as last name, field
+
+unmerged_bachelors_rd5_dt <- unmerged_bachelors_rd4_dt[!merged_first_name_field_dt, on = c("first_name","clean_field","final_initial", "Year")]
+unmerged_revelio_rd5_dt <- unmerged_revelio_rd4_dt[!merged_first_name_field_dt, on = c("first_name","clean_field","final_initial", "Year")]
+
+# Standardize field names in both datasets
+unmerged_bachelors_rd5_dt[, clean_field := fcase(
+  Degree %flike% "Music", "Music",
+  Degree %flike% "Business", "Business",
+  Degree %flike% "Engineering", "Engineering",
+  Degree %flike% "Microbiology", "Biology",
+  Degree %flike% "Chemistry", "Chemistry",
+  Degree %flike% "Education", "Education",
+  Degree %flike% "Communication", "Information Science",
+  Degree %flike% "Nursing", "Nursing",
+  default = "Other"
+)]
+
+unmerged_bachelors_rd5_dt[, maiden_name := last_name]
+
+unmerged_revelio_rd5_dt[, clean_field := fcase(
+  field %flike% "Music", "Music",
+  field %flike% "Business" | field %flike% "Accounting" | field %flike% "Finance" | 
+    field %flike% "Marketing", "Business",
+  field %flike% "Engineering", "Engineering",
+  field %flike% "Biology", "Biology",
+  field %flike% "Chemistry", "Chemistry",
+  field %flike% "Education", "Education",
+  field %flike% "Information", "Information Science",
+  field %flike% "Nursing", "Nursing",
+  default = "Other"
+)]
+
+unmerged_revelio_rd5_dt[, maiden_name := middle_name]
+
+# Filter `unmerged_revelio_rd5_dt` for Pr(Female) > 0.95
+filtered_revelio_rd5_dt <- unmerged_revelio_rd5_dt[f_prob >= 0.95]
+
+merged_legal_married_dt <- merge(
+  unmerged_bachelors_rd5_dt,
+  filtered_revelio_rd5_dt,
+  by = c("first_name", "maiden_name", "Year"),
+  all = FALSE
+)
+
+merged_legal_married_dt <- merged_legal_married_dt[
+  , if (.N == 1) .SD, by = .(first_name, maiden_name, Year)
+]
+
+# additional 858 unique by user_id and name / year (0.8%) 
+nrow(unique(merged_legal_married_dt, by = c("user_id"))) 
+nrow(unique(merged_legal_married_dt, by = c("first_name", "maiden_name", "Year"))) 
+
+### vii. Perform the 7th merge -- first name, field, year (for women only)
+
+unmerged_bachelors_rd6_dt <- unmerged_bachelors_rd5_dt[!merged_legal_married_dt, on = c("first_name", "maiden_name", "Year")]
+unmerged_revelio_rd6_dt <- unmerged_revelio_rd5_dt[!merged_legal_married_dt, on = c("first_name", "maiden_name", "Year")]
+
+# Standardize field names in both datasets
+unmerged_bachelors_rd6_dt[, clean_field_limited := fcase(
+  Degree %flike% "Music", "Music",
+  Degree %flike% "Business", "Business",
+  Degree %flike% "Engineering", "Engineering",
+  Degree %flike% "Microbiology", "Biology",
+  Degree %flike% "Chemistry", "Chemistry",
+  Degree %flike% "Education", "Education",
+  Degree %flike% "Communication", "Information Science",
+  Degree %flike% "Nursing", "Nursing",
+  default = "Other - UA Data"
+)]
+
+
+unmerged_revelio_rd6_dt[, clean_field_limited := fcase(
+  field %flike% "Music", "Music",
+  field %flike% "Business" | field %flike% "Accounting" | field %flike% "Finance" | 
+    field %flike% "Marketing", "Business",
+  field %flike% "Engineering", "Engineering",
+  field %flike% "Biology", "Biology",
+  field %flike% "Chemistry", "Chemistry",
+  field %flike% "Education", "Education",
+  field %flike% "Information", "Information Science",
+  field %flike% "Nursing", "Nursing",
+  default = "Other - RL Data"
+)]
+
+
+# Filter `unmerged_revelio_rd5_dt` for Pr(Female) > 0.95
+filtered_revelio_rd6_dt <- unmerged_revelio_rd6_dt[f_prob >= 0.95]
+
+merged_field_female_dt <- merge(
+  unmerged_bachelors_rd6_dt,
+  filtered_revelio_rd6_dt,
+  by = c("first_name", "clean_field_limited", "Year"),
+  all = FALSE, allow.cartesian = T
+)
+
+merged_field_female_dt <- merged_field_female_dt[
+  , if (.N == 1) .SD, by = .(first_name, clean_field_limited, Year)
+]
+
+# additional 836 unique by user_id and name / year (0.8%) 
+nrow(unique(merged_field_female_dt, by = c("user_id"))) 
+nrow(unique(merged_field_female_dt, by = c("first_name", "clean_field_limited", "Year"))) 
+
+### vii. Perform the 8th merge -- what if people are off by 1 year in their RL profile? RL is 1 year above UA year
+
+# or people come back and get their degree later? so commencement year off from RL year
+
+unmerged_bachelors_rd7_dt <- unmerged_bachelors_rd6_dt[!merged_field_female_dt, on = c("first_name", "clean_field_limited", "Year")]
+unmerged_revelio_rd7_dt <- unmerged_revelio_rd6_dt[!merged_field_female_dt, on = c("first_name", "clean_field_limited", "Year")]
