@@ -28,6 +28,9 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                tidycensus,educationdata,foreach,
                doParallel,readxl,did,ggExtra)
 
+# set working directoru
+setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
+
 #=====================================================================
 # 1 - read and edit the spring commencement data
 #=====================================================================
@@ -739,7 +742,7 @@ merged_no_hyphen_dt <- merge(
   by = c("first_name","last_name_clean", "Year"),
   all = F)
 
-# additional 35 unique by user_id and name / year (> 2%)
+# additional 35 unique by user_id and name / year (> 0.1%)
 nrow(unique(merged_no_hyphen_dt, by = c("user_id")))
 nrow(unique(merged_no_hyphen_dt, by = c("first_name","last_name_clean","Year")))
 
@@ -896,7 +899,88 @@ nrow(unique(merged_field_female_dt, by = c("first_name", "clean_field_limited", 
 
 ### vii. Perform the 8th merge -- what if people are off by 1 year in their RL profile? RL is 1 year above UA year
 
-# or people come back and get their degree later? so commencement year off from RL year
-
 unmerged_bachelors_rd7_dt <- unmerged_bachelors_rd6_dt[!merged_field_female_dt, on = c("first_name", "clean_field_limited", "Year")]
 unmerged_revelio_rd7_dt <- unmerged_revelio_rd6_dt[!merged_field_female_dt, on = c("first_name", "clean_field_limited", "Year")]
+
+unmerged_revelio_rd7_dt[, adjustedYear := Year + 1]
+unmerged_bachelors_rd7_dt[, adjustedYear := Year]
+
+
+merged_year_dt <- merge(
+  unmerged_bachelors_rd7_dt,
+  unmerged_revelio_rd7_dt,
+  by = c("first_name", "last_name","adjustedYear"),
+  all = FALSE
+)
+
+# additional 1598 unique by user_id and name / year (1.6%) 
+nrow(unique(merged_year_dt, by = c("user_id"))) 
+nrow(unique(merged_year_dt, by = c("first_name", "last_name", "adjustedYear"))) 
+
+
+### vii. Perform the 9th merge -- what if people are off by 1 year in their RL profile? RL is 1 year above UA year
+
+unmerged_bachelors_rd8_dt <- unmerged_bachelors_rd7_dt[!merged_year_dt, on = c("first_name", "last_name", "adjustedYear")]
+unmerged_revelio_rd8_dt <- unmerged_revelio_rd7_dt[!merged_year_dt, on = c("first_name", "last_name", "adjustedYear")]
+
+unmerged_revelio_rd8_dt[, adjustedYear := Year - 1]
+unmerged_bachelors_rd7_dt[, adjustedYear := Year]
+
+
+merged_year_v2_dt <- merge(
+  unmerged_bachelors_rd8_dt,
+  unmerged_revelio_rd8_dt,
+  by = c("first_name", "last_name","adjustedYear"),
+  all = FALSE
+)
+
+# additional 949 unique by user_id and name / year (1%) 
+nrow(unique(merged_year_v2_dt, by = c("user_id"))) 
+nrow(unique(merged_year_v2_dt, by = c("first_name", "last_name", "adjustedYear"))) 
+
+
+final_unmerged_bachelors_dt <- unmerged_bachelors_rd8_dt[!merged_year_v2_dt, on = c("first_name", "last_name", "adjustedYear")]
+final_unmerged_revelio_dt <- unmerged_revelio_rd8_dt[!merged_year_v2_dt, on = c("first_name", "last_name", "adjustedYear")]
+
+
+### vii. Write the matched folks to output
+
+## (a) aggregate up all the matched tables
+
+all_matched_dt <- rbind(merged_dt, merged_abbreviation_dt, merged_middle_dt, 
+                         merged_no_hyphen_dt, merged_first_name_field_dt, merged_legal_married_dt, 
+                         merged_field_female_dt, merged_year_dt, merged_year_v2_dt, fill = T)
+
+# note: each iteration is unique but a few double counted user_ids 
+nrow(unique(all_matched_dt, by = c("user_id"))) 
+
+unique_matched_dt <- unique(all_matched_dt, by = c("user_id"))
+
+unique_matched_dt[, originTown := `Origin Town`]
+unique_matched_dt[, originState := `Origin State`]
+unique_matched_dt[, uaDegree := Degree]
+
+## (b) remove unnecessary columns
+
+unique_matched_clean_dt <- unique_matched_dt[, c("first_name",
+                                                 "last_name",
+                                                 "fullname",
+                                                 "Year",
+                                                 "user_id",
+                                                 "degree",
+                                                 "field",
+                                                 "f_prob",
+                                                 "black_prob",
+                                                 "white_prob",
+                                                 "hispanic_prob",
+                                                 "originTown",
+                                                 "originState",
+                                                 "uaDegree",
+                                                 "Honors",
+                                                 "Commencement",
+                                                 "user_location",
+                                                 "profile_linkedin_url")]
+
+## (c) write file to output
+
+fwrite(unique_matched_clean_dt, file = here("data","linked_commencement_revelio_profile_data.csv"))
