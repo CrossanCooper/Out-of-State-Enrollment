@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 1-28-25
+## Last Modified: 1-29-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -8,6 +8,7 @@
 ## data outputs:
 # (i) data/all_alabama_data.csv -- all cleaned commencement data
 # (ii) data/cleaned_ua_revelio.csv -- all cleaned Revelio (UA) data
+# (iii) data/linked_commencement_revelio_profile_data.csv -- linked data
 #
 ## figure outputs:
 # (i) figures/trends_enrollment_area.png -- enrollment trends as area plot
@@ -566,6 +567,8 @@ fwrite(formatch_revelio_dt, here("data","cleaned_ua_revelio.csv"))
 formatch_bachelors_dt <- unique(all_bachelors_dt[!(Name %flike% "posthumous") & !(Honors %flike% "Posthumous")], 
                                 by = c("Name", "Origin Town", "Year"))
 
+formatch_bachelors_dt[!(Name %flike% "posthumous") & !(Honors %flike% "Posthumous"), UniqueID := .GRP, by = .(Name, `Origin Town`, Year)]
+
 # quick name check
 name_check_bachelors_dt <- unique(formatch_bachelors_dt[,.(first_name)], by = "first_name")
 
@@ -701,7 +704,7 @@ merged_abbreviation_dt <- merge(
   by = c("abbreviated_first_name","last_name", "Year"), 
   all = F)
 
-# additional 2.4k unique by user_id and name / year (> 2%)
+# additional 2383 unique by user_id and name / year (> 2%)
 nrow(unique(merged_abbreviation_dt, by = c("user_id")))
 nrow(unique(merged_abbreviation_dt, by = c("abbreviated_first_name","last_name","Year")))
 
@@ -723,7 +726,7 @@ merged_middle_dt <- merge(
   by = c("middle_as_first_name","last_name", "Year"), 
   all = F)
 
-# additional 2.1k unique by user_id and name / year (> 2%)
+# additional 2128 unique by user_id and name / year (> 2%)
 nrow(unique(merged_middle_dt, by = c("user_id")))
 nrow(unique(merged_middle_dt, by = c("middle_as_first_name","last_name","Year")))
 
@@ -979,8 +982,84 @@ unique_matched_clean_dt <- unique_matched_dt[, c("first_name",
                                                  "Honors",
                                                  "Commencement",
                                                  "user_location",
+                                                 "UniqueID",
                                                  "profile_linkedin_url")]
 
 ## (c) write file to output
 
 fwrite(unique_matched_clean_dt, file = here("data","linked_commencement_revelio_profile_data.csv"))
+
+
+#=====================================================================
+# 9 - examine selection into matching
+#=====================================================================
+
+nrow(unique(formatch_revelio_dt, by = "user_id"))
+nrow(unique(unique_matched_clean_dt, by = "user_id"))
+
+nrow(unique(formatch_bachelors_dt, by = c("UniqueID")))
+nrow(unique(unique_matched_clean_dt, by = "UniqueID"))
+
+
+# 1. Add Matched indicator to formatch_revelio_dt
+formatch_revelio_dt[, Matched := as.integer(user_id %in% unique_matched_clean_dt$user_id)]
+
+formatch_revelio_dt[, degreeGroup := fcase(highest_degree %flike% "Associate" | 
+                                             highest_degree %flike% "High School", "Sub-Baccalaureate",
+                                           highest_degree %flike% "Bachelor", "Bachelors",
+                                           highest_degree %flike% "Master" | highest_degree %flike% "MBA", "Masters",
+                                           highest_degree %flike% "Doctor", "Doctoral",
+                                           default = "Not Listed"
+                                           )]
+
+# 2. Add Matched indicator to formatch_bachelors_dt
+formatch_bachelors_dt[, Matched := as.integer(
+  (UniqueID %in% unique_matched_clean_dt$UniqueID) 
+)]
+
+# Run regressions predicting selection into matching
+
+formatch_bachelors_dt[, DegreeGroup := fcase(
+  Degree %flike% "Business", "Business",
+  Degree %flike% "Engineer" | Degree %flike% "Eng.", "Engineering",
+  Degree %flike% "Computer Science", "Computer Science",
+  Degree %flike% "Nursing", "Nursing",
+  Degree %flike% "Social Work", "Social Work",
+  Degree %flike% "Education", "Education",
+  Degree %flike% "Music", "Music",
+  Degree %flike% "Fine Arts", "Fine Arts",
+  Degree %flike% "Chemistry", "Chemistry",
+  Degree %flike% "Geology", "Geology",
+  Degree %flike% "Biology" | Degree %flike% "biology", "Biology",
+  Degree %flike% "Athletic Training", "Athletic Training",
+  Degree %flike% "Communication", "Communication",
+  Degree %flike% "Human", "Human Environmental Sciences",
+  default = "General"
+)]
+
+
+
+formatch_bachelors_dt[, HonorsGroup := fcase(
+  Honors %flike% "No" | Honors %flike% "None", "None",
+  Honors %flike% "summa" | Honors %flike% "Summa", "Summa Cum Laude",
+  Honors %flike% "magna" | Honors %flike% "Magna", "Magna Cum Laude",
+  (Honors %flike% "cum laude" | Honors %flike% "Cum laude") & !(Honors %flike% "magna") 
+  & !(Honors %flike% "summa") & !(Honors %flike% "Magna") & !(Honors %flike% "Summa"), "Cum Laude",
+  default = "University Honors"
+)]
+
+formatch_bachelors_dt[, HonorsFlag := fifelse(
+  HonorsGroup != "None", 1, 0
+)]
+
+formatch_bachelors_dt[, SpringFlag := fifelse(
+  Commencement != "Spring", 0, 1
+)]
+
+
+reg_revelio <- feols(Matched ~ f_prob + white_prob + degreeGroup | Year, data = formatch_revelio_dt)
+reg_bachelors <- feols(Matched ~ DegreeGroup + HonorsFlag + Commencement | `Origin State` + Year, data = formatch_bachelors_dt)
+
+# Show results
+summary(reg_revelio)
+summary(reg_bachelors)
