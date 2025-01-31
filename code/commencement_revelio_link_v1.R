@@ -1058,7 +1058,6 @@ formatch_bachelors_dt[, SpringFlag := fifelse(
 
 
 reg_revelio <- feols(Matched ~ f_prob + white_prob + degreeGroup | Year, data = formatch_revelio_dt)
-reg_bachelors <- feols(Matched ~ DegreeGroup + HonorsFlag + Commencement | `Origin State` + Year, data = formatch_bachelors_dt)
 
 # Show results
 summary(reg_revelio)

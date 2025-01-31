@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 9-25-23
+## Last Modified: 1-31-25
 
 ## analyze out-of-state enrollment data
 #=====================================================================
@@ -17,6 +17,9 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                Hmisc,tseries,DescTools,here,censusapi,
                tidycensus,ggiplot,educationdata,foreach,
                doParallel,readxl,did,ggExtra,stringi)
+
+# set working directoru
+setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
 
 #=====================================================================
 # 1 - read and edit data
@@ -90,10 +93,14 @@ merged_list <- NULL
 gc()
 
 # List of U.S. public flagship universities
-flagships <- c(
-  "University of Alabama", "University of Alaska Fairbanks", "University of Arizona", 
+flagships <- c( "University of Pittsburgh", "Michigan State University", "Kansas State University",
+                "Mississippi State University", "Montana State University", "Stony Brook University",
+                "Oklahoma State University", "Oregon State University", "University of Memphis",
+                "University of Houston", "University of North Texas", "Texas Tech University", 
+                "Washington State University", "University of Alabama", "Auburn University", 
+                "University of Alaska Fairbanks", "University of Arizona", "Arizona State University",
   "University of Arkansas Main Campus", "University of California-Berkeley", "University of Colorado at Boulder",
-  "University of Connecticut", "University of Delaware", "University of Florida", 
+  "Colorado State University", "University of Connecticut", "University of Delaware", "University of Florida", 
   "University of Georgia", "University of Hawaii at Manoa", "University of Idaho", 
   "University of Illinois at Urbana-Champaign", "Indiana University-Bloomington", 
   "University of Iowa", "University of Kansas Main Campus", "University of Kentucky", 
@@ -115,8 +122,11 @@ flagships <- c(
   "University of Virginia-Main Campus", "University of Washington-Seattle Campus", "West Virginia University", 
   "University of Wisconsin-Madison", "University of Wyoming"
 )
+
 flagship_ids <- c(
-  100751, 102614, 104179, 106397, 110635, 126614, 129020, 130943, 134130, 139959, 141574, 142285, 145637, 151351, 153658, 155317,
+  215293, 171100, 155399, 176080, 180461, 196097, 207388, 209542, 220862, 225432, 227216, 229115, 236939,
+  100751, 100858, 102614, 104179, 104151, 106397, 110635, 126614, 126818, 129020, 130943, 134130, 
+  139959, 141574, 142285, 145637, 151351, 153658, 155317,
   157085, 159391, 161253, 163286, 166629, 170976, 174066, 176017, 178396, 180489, 181464, 182290, 183044, 186380, 187985, 188030,
   196088, 199120, 200280, 204796, 207500, 209551, 214777, 217484, 218663, 219471, 221759, 228723, 228778, 230764, 231174, 234076,
   236948, 238032, 240444, 240727, 243780
@@ -269,16 +279,55 @@ shares_timeseries <- ggplot(data = melted_dt, aes(x = year, y = average, group =
     x = "Year",
     y = "Enrollment Shares",
     color = "Student Type"
-  ) + theme_bw() + removeGridX() + scale_color_brewer(palette = "Paired")
+  ) + theme_bw() + removeGridX() + scale_color_viridis_d() + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)) 
 
 ggsave(here("figures","enrollment_shares_time.jpg"),
        plot = shares_timeseries,width = 8, height = 4.5)
 
+## changes from 2003
+
+# Compute difference from 2003
+base_values <- melted_dt[year == 2000, .(year, enrollment_type, base_value = average)]
+setnames(base_values, "year", "base_year")
+for_plot_diff_dt <- merge(melted_dt, base_values, by = c("enrollment_type"), all.x = TRUE)
+
+for_plot_diff_dt[, diff_from_2000 := 100 * (average - base_value)/(base_value)]
+
+# Create the plot
+shares_diff_plot <- ggplot(data = for_plot_diff_dt[`Student Type` != 'Other'], aes(x = year, y = diff_from_2000, group = `Student Type`, color = `Student Type`)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_line(linewidth = 2, alpha = 0.6, linetype = "solid") +
+  geom_point(size = 3) +
+  labs(
+    x = "Year",
+    y = "Change from Shares in 2000",
+    color = "Enrollment Share"
+  ) + 
+  theme_bw() + 
+  removeGridX() + 
+  scale_color_viridis_d() + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)
+  ) +
+  scale_y_continuous(limits = c(-16,41),
+                     breaks = c(-10,0,10,20,30,40),
+                     labels = c("-15%","0%","10%","20%","30%","40%"))
+
+print(shares_diff_plot)
+
+ggsave(here("figures","enrollment_share_changes_over_time.png"),
+       plot = shares_diff_plot,width = 8, height = 4.5)
 
 
 # just for a few schools
 # oregon (209551), maine (161253), alabama (100751), 
-# utah (230764), mississippi (176017), purdue (243780) steep
+# utah (230764), mississippi (176017), wyoming (243780) steep
 # 2012 - utah gets a new college president
 
 plot_dt <- final_analysis_dt[,
@@ -288,7 +337,7 @@ plot_dt <- final_analysis_dt[,
                                  unitid == 209551, "Oregon",
                                  unitid == 161253, "Maine",
                                  unitid == 230764, "Utah",
-                                 unitid == 243780, "Purdue"
+                                 unitid == 176017, "Ole Miss"
                                )
 ]
 
@@ -310,22 +359,30 @@ ua_versus_all <- ggplot(data = combined_trends, aes(x = year, y = average_out_sh
   labs(
     x = "Year",
     y = "Out-of-State % of First Year Enrollment",
-  ) + theme_bw() + removeGridX() + scale_color_brewer(palette = "Paired")
+  ) + theme_bw() + removeGridX() + scale_color_viridis_d() + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)) 
 
 ggsave(here("figures","ua_and_all_others.jpg"),
        plot = ua_versus_all,width = 8, height = 4.5)
 
 case_study <- ggplot(data = plot_dt[unitid == 100751| 
-                                  unitid == 209551 | unitid == 217484 |
-                                  unitid == 161253 | unitid == 230764 # |  unitid == 176017
+                                  unitid == 209551 | unitid == 176017 |
+                                  unitid == 161253 | unitid == 230764 
                                  ], aes(x = year, y = out_share, color = Institution)) +
   geom_line(linewidth = 1.2, alpha = 0.5) +
-  geom_point(size = 2.4) + ylim(0,0.8) + 
+  geom_point(size = 2.4) + ylim(0,0.7) + 
   labs(
     x = "Year",
-    y = "Enrollment Shares",
-    title = "Out-of-State Enrollment Share Case Studies"
-  ) + theme_bw() + removeGridX() + scale_color_brewer(palette = "Paired")
+    y = "Enrollment Shares") + theme_bw() + removeGridX() + scale_color_viridis_d() + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)) 
+
+print(case_study)
 
 ggsave(here("figures","case_study_out.jpg"),
        plot = case_study,width = 8, height = 4.5)
@@ -334,13 +391,14 @@ ggsave(here("figures","case_study_out.jpg"),
 # just alabama (2003 a new president arrives)
 
 ggplot(data = final_analysis_dt[unitid == 100751], aes(x = year, y = out_share)) +
-  geom_line(linewidth = 1.5, color = "#56B4E9", alpha = 0.5) +
-  geom_point(size = 3, color = "#009E73") + ylim(0,0.8) + 
+  geom_line(linewidth = 1.5, color = "#21908CFF", alpha = 0.5) +
+  geom_point(size = 3, color = "#440154FF") + ylim(0,0.8) + 
   labs(
     x = "Year",
-    y = "Enrollment Shares",
-    title = "University of Alabama Out-of-State Enrollment Shares 2000-2021"
+    y = "Enrollment Shares"
   ) + theme_bw() + removeGridX() 
+
+
 
 
 bama_dt <- melt(final_analysis_dt[unitid == 100751], id.vars = c("year"), 
@@ -358,6 +416,8 @@ ggplot(data = bama_dt, aes(x = year, y = `Student Count`, color = Type)) +
     title = "University of Alabama First Year Enrollment 2000-2021"
   ) + theme_bw() + removeGridX() + scale_color_brewer(palette = "Set2")
 
+out_2000 <- mean(final_analysis_dt[year == 2000, out_share])
+out_2021 <- mean(final_analysis_dt[year == 2021, out_share])
 
 # across all school 
 density <- ggplot(final_analysis_dt[year == 2000 | year == 2021], aes(x=out_share, fill = factor(year))) + 
@@ -366,7 +426,7 @@ density <- ggplot(final_analysis_dt[year == 2000 | year == 2021], aes(x=out_shar
   scale_fill_brewer(palette = "Paired") + 
   theme_bw() + removeGridX() + geom_vline(xintercept = 0.351,
                                             linetype="dashed", 
-                                            color = "red", linewidth=1,
+                                            color = "red", size=1,
                                           alpha = 0.5) + 
   geom_label(
     label="2021 Average: 35.1%", 
@@ -388,6 +448,42 @@ density <- ggplot(final_analysis_dt[year == 2000 | year == 2021], aes(x=out_shar
     color = "white",
     fill="#A6CEE3"
   ) + ylim(0,4)
+
+
+print(density)
   
 ggsave(here("figures","density_out.jpg"),
        plot = density,width = 8, height = 4.5)
+
+## converted continuous density to histogram
+
+histogram_plot <- ggplot(final_analysis_dt[year == 2000 | year == 2021], aes(x = out_share, fill = factor(year))) + 
+  geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, position = "identity", color = 'black') + 
+  labs(title = "", x = "Out-of-State Student Share", y = "Density", fill = "Enrollment Year") + 
+  scale_fill_viridis_d() + 
+  theme_bw() + 
+  removeGridX() + 
+  geom_vline(xintercept = 0.351, linetype = "dashed", color = "#21908CFF", size = 1, alpha = 0.5) + 
+  geom_label(
+    label = "2021 Average: 35.1%", 
+    x = 0.495, 
+    y = 2.75, 
+    label.padding = unit(0.55, "lines"), 
+    label.size = 0.35, 
+    color = "black", 
+    fill = "#FDE725FF"
+  ) + 
+  geom_vline(xintercept = 0.253, linetype = "dashed", color = "#21908CFF", size = 1, alpha = 0.5) + 
+  geom_label(
+    label = "2000 Average: 25.3%", 
+    x = 0.125, 
+    y = 3.25, 
+    label.padding = unit(0.55, "lines"), 
+    label.size = 0.35, 
+    color = "black", 
+    fill = "#440154FF"
+  ) + 
+  ylim(0, 6)
+
+print(histogram_plot)
+
