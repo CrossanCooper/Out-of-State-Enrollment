@@ -18,7 +18,7 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                tidycensus,ggiplot,educationdata,foreach,
                doParallel,readxl,did,ggExtra,stringi)
 
-# set working directoru
+# set working directory
 setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
 
 #=====================================================================
@@ -232,11 +232,11 @@ analysis_dt <- analysis_dt[, other_share := (foreign + not_listed)/total]
 
 final_analysis_dt <- analysis_dt[other_share != 1]
 
-fwrite(final_analysis_dt, here("data","flagship_panel"))
+fwrite(final_analysis_dt, here("data","flagship_panel.csv"))
 
 # temporary check
 
-temp_dt <- fread(here("data","flagship_panel"))
+temp_dt <- fread(here("data","flagship_panel.csv"))
 
 temp_2000_dt <- temp_dt[year == 2000]
 
@@ -288,9 +288,9 @@ shares_timeseries <- ggplot(data = melted_dt, aes(x = year, y = average, group =
 ggsave(here("figures","enrollment_shares_time.jpg"),
        plot = shares_timeseries,width = 8, height = 4.5)
 
-## changes from 2003
+## changes from 2000
 
-# Compute difference from 2003
+# Compute difference from 2000
 base_values <- melted_dt[year == 2000, .(year, enrollment_type, base_value = average)]
 setnames(base_values, "year", "base_year")
 for_plot_diff_dt <- merge(melted_dt, base_values, by = c("enrollment_type"), all.x = TRUE)
@@ -315,7 +315,7 @@ shares_diff_plot <- ggplot(data = for_plot_diff_dt[`Student Type` != 'Other'], a
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
     text = element_text(size = 12)
   ) +
-  scale_y_continuous(limits = c(-16,41),
+  scale_y_continuous(limits = c(-16,43),
                      breaks = c(-10,0,10,20,30,40),
                      labels = c("-15%","0%","10%","20%","30%","40%"))
 
