@@ -7,7 +7,7 @@
 #////////////////////////////////////////////////////////////////////////////////
 
 # Setup
-source('C:/Users/ryanh/Dropbox/admissions_project/code/setup.R')
+source('C:/Users/ryanh/OneDrive/Documents/Grad School/Research/Out-of-State-Enrollment/code/setup.R')
 
 # Build data --------------------------------------------------------------------
 

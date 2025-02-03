@@ -7,7 +7,7 @@
 #////////////////////////////////////////////////////////////////////////////////
 
 # Setup
-source('C:/Users/ryanh/Dropbox/admissions_project/code/setup.R')
+source('C:/Users/ryanh/OneDrive/Documents/Grad School/Research/Out-of-State-Enrollment/code/setup.R')
 
 # Read in cleaned IPEDS panel
 ipeds <- readRDS(paste0(pathHome, 'data/ipeds_panel.rds'))
@@ -43,9 +43,7 @@ oos_shares <- ef %>%
   rename(FIPS = LINE,
          enroll = EFRES01) %>%
   left_join(stabbr_cw) %>%
-  filter(!is.na(STABBR)) %>%
-  # Leave out Alabama
-  filter(STABBR != 'AL')
+  filter(!is.na(STABBR))
 
 # Balance the panel
 oos_shares_bal <- data.frame(y = rep(2000:2019, n = length(unique(oos_shares$STABBR))),
@@ -56,9 +54,9 @@ oos_shares_bal <- data.frame(y = rep(2000:2019, n = length(unique(oos_shares$STA
   left_join(flag_adm)
 
 # Regress OOS enrollment on selectivity of in-state flagship
-felm(enroll ~ adm_rate | factor(STABBR), data = oos_shares_bal) %>%
+felm(enroll ~ adm_rate | factor(STABBR), data = oos_shares_bal %>% filter(STABBR != 'AL')) %>%
   summary(robust = T)
-felm(enroll ~ adm_rate | factor(STABBR) + factor(y), data = oos_shares_bal) %>%
+felm(enroll ~ adm_rate | factor(STABBR) + factor(y), data = oos_shares_bal %>% filter(STABBR != 'AL')) %>%
   summary(robust = T)
 
 # Now try trimming outlier admission rates and states with very little UA enrollment ever
@@ -66,6 +64,13 @@ felm(enroll ~ adm_rate | factor(STABBR) + factor(y), data = oos_shares_bal) %>%
 # Remove NA admissions rates
 oos_shares_bal <- oos_shares_bal %>%
   filter(!is.na(adm_rate))
+
+# Save for analysis file
+saveRDS(oos_shares_bal, paste0(pathHome, 'data/selectivity_iv.rds'))
+
+# Remove Alabama
+oos_shares_bal <- oos_shares_bal %>%
+  filter(STABBR != 'AL')
 
 # Project out state and year FEs
 adm_rate_res <- felm(adm_rate ~ factor(STABBR) + factor(y), data = oos_shares_bal)$resid
