@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 1-29-25
+## Last Modified: 2-3-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -920,6 +920,8 @@ merged_year_dt <- merge(
 nrow(unique(merged_year_dt, by = c("user_id"))) 
 nrow(unique(merged_year_dt, by = c("first_name", "last_name", "adjustedYear"))) 
 
+merged_year_dt[, Year := adjustedYear]
+
 
 ### vii. Perform the 9th merge -- what if people are off by 1 year in their RL profile? RL is 1 year above UA year
 
@@ -945,6 +947,7 @@ nrow(unique(merged_year_v2_dt, by = c("first_name", "last_name", "adjustedYear")
 final_unmerged_bachelors_dt <- unmerged_bachelors_rd8_dt[!merged_year_v2_dt, on = c("first_name", "last_name", "adjustedYear")]
 final_unmerged_revelio_dt <- unmerged_revelio_rd8_dt[!merged_year_v2_dt, on = c("first_name", "last_name", "adjustedYear")]
 
+merged_year_v2_dt[, Year := adjustedYear]
 
 ### vii. Write the matched folks to output
 
