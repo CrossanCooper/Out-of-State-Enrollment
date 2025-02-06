@@ -1,13 +1,15 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-4-25
+## Last Modified: 2-5-25
 
 ## file use: explore cleaned UA data
 #
 ## figure outputs:
 # (i) xxx
-# (ii) xxx
-# (iii) xxx
+# (ii) figures/recruiting_iv.png -- how recruiting visits in 2017  
+#      affect enrollment in a cross-section
+# (iii) figures/recruiting_iv_changes.png -- how recruiting visits
+#       in 2017 affect enrollment changes from 2006 - 2022
 #=====================================================================
 
 #=====================================================================
@@ -19,9 +21,9 @@ rm(list=ls())
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                dplyr,fixest,ggmap,stargazer,sjmisc,
-               Hmisc,tseries,DescTools,here,censusapi,
+               Hmisc,tseries,DescTools,here,censusapi,RSQLite,
                tidycensus,educationdata,foreach,binsreg,
-               doParallel,readxl,did,ggExtra)
+               doParallel,readxl,did,ggExtra,DBI)
 
 # set working directoru
 setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
@@ -228,7 +230,7 @@ honors_summary[, `:=`(
 )]
 
 #=====================================================================
-# 3 - read and edit the recruiting data
+# 3 - read and explore the 2017 recruiting data
 #=====================================================================
 
 ### i. read data 
@@ -241,7 +243,7 @@ ua_recruiting_dt <- recruiting_dt[univ_id == 100751]
 # 67.5% public hs, 31.9% private hs
 ua_hs_visit_dt <- ua_recruiting_dt[categorized_event_type %flike% "hsvisit"]
 
-### ii. merge with ua_dt
+### ii. merge with ua_dt for just 2022
 
 ua_dt[, TownName := OriginTown]
 ua_dt[, StateName := OriginState]
@@ -264,10 +266,147 @@ merged_ua_hs_visit_dt <- merge(ua_counts_dt, visit_counts_dt, by = c("TownName",
 merged_ua_hs_visit_dt[, VisitCount := fifelse(is.na(VisitCount), 0, VisitCount)]
 merged_ua_hs_visit_dt[, UACount := fifelse(is.na(UACount), 0, UACount)]
 
+merged_ua_hs_visit_dt[, LogPlusOneUA := log(1+UACount)]
+merged_ua_hs_visit_dt[, LogPlusOneVisit := log(1+VisitCount)]
+
 merged_ua_hs_visit_dt[, InAL := fifelse(StateName == "AL", 1, 0)]
 
 feols(UACount ~ VisitCount | InAL, data = merged_ua_hs_visit_dt, vcov = 'hc1')
 
 feols(UACount ~ VisitCount, data = merged_ua_hs_visit_dt[InAL == 0], vcov = 'hc1')
+
+
+
+merged_ua_hs_visit_dt[InAL == 0, VisitBucket := ifelse(VisitCount >= 10, ">= 10", as.character(VisitCount))]
+
+agg_data <- merged_ua_hs_visit_dt[InAL == 0, .(
+  Mean_UACount = mean(UACount, na.rm = TRUE),
+  Place_Count = .N  
+), by = VisitBucket]
+
+agg_data[, VisitBucket := factor(VisitBucket, levels = sort(as.numeric(unique(VisitBucket[VisitBucket != ">= 10"]))) %>% as.character() %>% c(">= 10"))]
+
+iv_plot <- ggplot(agg_data, aes(x = VisitBucket)) +
+  geom_bar(aes(y = Place_Count / max(Place_Count) * max(Mean_UACount)), stat = "identity", fill = "#440154FF", alpha = 0.5) +  # Places distribution (scaled)
+  geom_point(aes(y = Mean_UACount), color = "#21908CFF", size = 3) +  # Mean UACount
+  geom_line(aes(y = Mean_UACount, group = 1), color = "#21908CFF", size = 1.5, linetype = 'dashed') +  # Line connecting mean values
+  scale_y_continuous(
+    name = "Average # of UA Graduates",
+    sec.axis = sec_axis(~ . * max(agg_data$Place_Count) / max(agg_data$Mean_UACount), name = "# of Towns")  # Secondary y-axis
+  ) +
+  theme_bw() + removeGridX() +
+  labs(x = "Visit Count (Grouped)") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(iv_plot)
+
+ggsave(here("figures","recruiting_iv.png"), plot = iv_plot,
+       width = 8, height = 4.5)
+
+
+### iii. extend cross-section IV to look at changes from 2006 
+
+
+ua_dt[, TownName := OriginTown]
+ua_dt[, StateName := OriginState]
+
+ua_2022_dt <- ua_dt[Year == 2022 & StateName != "International" & TownName != ""]
+ua_2006_dt <- ua_dt[Year == 2006 & StateName != "International" & TownName != ""]
+
+ua_counts_2022_dt <- ua_2022_dt[,.N,.(TownName, StateName)]
+ua_counts_2006_dt <- ua_2006_dt[,.N,.(TownName, StateName)]
+
+setnames(ua_counts_2022_dt, "N", "UACount_2022")
+setnames(ua_counts_2006_dt, "N", "UACount_2006")
+
+merge_counts_dt <- merge(ua_counts_2006_dt, ua_counts_2022_dt, by = c("TownName", "StateName"), all.x = T, all.y = T)
+
+merge_counts_dt[, UACount_2006 := fifelse(is.na(UACount_2006), 0, UACount_2006)]
+merge_counts_dt[, UACount_2022 := fifelse(is.na(UACount_2022), 0, UACount_2022)]
+
+merge_counts_dt[, ChangeUACount := UACount_2022 - UACount_2006]
+
+ua_hs_visit_dt[, TownName := event_city]
+ua_hs_visit_dt[, StateName := event_state]
+
+visit_counts_dt <- ua_hs_visit_dt[TownName != "",.N,.(TownName, StateName)]
+
+setnames(visit_counts_dt, "N", "VisitCount")
+
+merged_ua_hs_visit_changes_dt <- merge(merge_counts_dt, visit_counts_dt, by = c("TownName", "StateName"),  all.x = T, all.y = T)
+
+merged_ua_hs_visit_changes_dt[, VisitCount := fifelse(is.na(VisitCount), 0, VisitCount)]
+merged_ua_hs_visit_changes_dt[, ChangeUACount := fifelse(is.na(ChangeUACount), 0, ChangeUACount)]
+
+merged_ua_hs_visit_changes_dt[, InAL := fifelse(StateName == "AL", 1, 0)]
+
+feols(ChangeUACount ~ VisitCount | InAL, data = merged_ua_hs_visit_all_dt, vcov = 'hc1')
+
+feols(ChangeUACount ~ VisitCount, data = merged_ua_hs_visit_all_dt[InAL == 0], vcov = 'hc1')
+
+feols(ChangeUACount ~ VisitCount, data = merged_ua_hs_visit_all_dt[InAL == 1], vcov = 'hc1')
+
+
+
+merged_ua_hs_visit_changes_dt[InAL == 0, VisitBucket := ifelse(VisitCount >= 10, ">= 10", as.character(VisitCount))]
+
+agg_data_changes <- merged_ua_hs_visit_changes_dt[InAL == 0, .(
+  Mean_UACount = mean(ChangeUACount, na.rm = TRUE),
+  Place_Count = .N  
+), by = VisitBucket]
+
+agg_data_changes[, VisitBucket := factor(VisitBucket, levels = sort(as.numeric(unique(VisitBucket[VisitBucket != ">= 10"]))) %>% as.character() %>% c(">= 10"))]
+
+iv_plot_changes <- ggplot(agg_data_changes, aes(x = VisitBucket)) +
+  geom_bar(aes(y = Place_Count / max(Place_Count) * max(Mean_UACount)), stat = "identity", fill = "#440154FF", alpha = 0.5) +  # Places distribution (scaled)
+  geom_point(aes(y = Mean_UACount), color = "#21908CFF", size = 3) +  # Mean UACount
+  geom_line(aes(y = Mean_UACount, group = 1), color = "#21908CFF", size = 1.5, linetype = 'dashed') +  # Line connecting mean values
+  scale_y_continuous(
+    name = "Avg Change in Graduates (2006 - 2022)",
+    sec.axis = sec_axis(~ . * max(agg_data$Place_Count) / max(agg_data$Mean_UACount), name = "# of Towns")  # Secondary y-axis
+  ) +
+  theme_bw() + removeGridX() +
+  labs(x = "2017 Recruiting Visits Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(iv_plot_changes)
+
+ggsave(here("figures","recruiting_iv_changes.png"), plot = iv_plot_changes,
+       width = 8, height = 4.5)
+
+
+#=====================================================================
+# 4 - read and explore the 2016 and future recruiting data
+#=====================================================================
+
+### i. access SQLite database -- 2016 data is not interesting
+
+mydb <- dbConnect(RSQLite::SQLite(), here("data","ozan-sql-data","marketing_server_Alabama.sqlite"))
+
+tables <- dbListTables(mydb)
+print(tables)
+
+dt_twitter_handles <- as.data.table(dbReadTable(mydb, "twitter_handles"))
+dt_twitter_hashtags <- as.data.table(dbReadTable(mydb, "twitter_hashtags"))
+dt_web_scraping <- as.data.table(dbReadTable(mydb, "web_scraping"))
+
+### ii. access future data?
+
+#=====================================================================
+# 5 - read and explore the appropriations data
+#=====================================================================
+
+### i. read in appropriations data 
+
+appropriations_dt <- fread(file = here("data","appropriations_data.csv"))
+
+appropriations_sample_dt <- appropriations_dt[FY >= 2011 & FY <= 2015]
+
+### ii. convert character (dollar / enrollment) columns to numeric
+
+### iii. read in 
+
+
+
 
 
