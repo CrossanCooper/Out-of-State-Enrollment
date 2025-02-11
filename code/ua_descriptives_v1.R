@@ -1,14 +1,13 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-5-25
+## Last Modified: 2-7-25
 
 ## file use: explore cleaned UA data
 #
 ## figure outputs:
-# (i) xxx
-# (ii) figures/recruiting_iv.png -- how recruiting visits in 2017  
+# (i) figures/recruiting_iv.png -- how recruiting visits in 2017  
 #      affect enrollment in a cross-section
-# (iii) figures/recruiting_iv_changes.png -- how recruiting visits
+# (ii) figures/recruiting_iv_changes.png -- how recruiting visits
 #       in 2017 affect enrollment changes from 2006 - 2022
 #=====================================================================
 
@@ -25,16 +24,17 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                tidycensus,educationdata,foreach,binsreg,
                doParallel,readxl,did,ggExtra,DBI)
 
-# set working directoru
+# set working directory
 setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
 
+# replace here with wd: file.path(getwd(),
 
 #=====================================================================
 # 1 - read and edit the cleaned commencement data
 #=====================================================================
 
 ### i. read data 
-ua_dt <- fread(file = here("data","all_alabama_data.csv"))
+ua_dt <- fread(file = file.path(getwd(), "data", "all_alabama_data.csv"))
 
 ### ii. clean degree and honors information
 ua_dt[, DegreeGroup := fcase(
@@ -68,6 +68,9 @@ ua_dt[, DegreeGroupFinal := fcase(
   default = DegreeGroup
 )]
 
+ua_dt[, STEM := fifelse(DegreeGroup == "Engineering" | DegreeGroupFinal %flike% "BS" | 
+                          DegreeGroup %in% c("Human Environmental Sciences", "Nursing", "Computer Science"), 1, 0 )]
+
 ua_dt[, HonorsGroup := fcase(
   Honors %flike% "No" | Honors %flike% "None", "None",
   Honors %flike% "Yes", "Yes",
@@ -91,6 +94,16 @@ ua_dt[, HonorsFlag := fifelse(
 ### iii. add out of state indicator
 
 ua_dt[, OutFlag := fifelse(`Origin State` != "AL", 1, 0)]
+
+## (a) simple summary stats
+
+summary_stats_dt <- ua_dt[, .(
+  total_count = .N,  # Count of observations per year
+  avg_STEM = round(100* mean(STEM, na.rm = TRUE),2),  # Average STEM indicator
+  avg_1_minus_OutFlag = round(100* mean(1 - OutFlag, na.rm = TRUE),2)  # Average of 1 - OutFlag
+), by = Year]
+
+
 
 ### iv. calculate OOS shares over time 
 
@@ -116,7 +129,7 @@ ua_dt[, OriginTown := gsub("([A-Z])([A-Z])", "\\1 \\2", OriginTown)] # Add space
 
 ## (a) by year
 
-major_summary <- ua_dt[, .(
+major_summary <- ua_dt[Year != "2006" & Year != "2024", .(
   total_students = .N,
   out_of_state_students = sum(OutFlag),
   in_state_students = .N - sum(OutFlag)
@@ -126,6 +139,14 @@ major_summary[, `:=`(
   out_of_state_share = out_of_state_students / total_students,
   in_state_share = in_state_students / total_students
 )]
+
+major_summary <- merge(
+  major_summary, 
+  out_of_state_by_year[, .(Year, year_out_of_state_share = out_of_state_share,
+                           year_in_state_share = 1 - out_of_state_share)], 
+  by = "Year", 
+  all.x = TRUE
+)
 
 ## (b) relative to enrollment share
 
@@ -235,7 +256,7 @@ honors_summary[, `:=`(
 
 ### i. read data 
 
-recruiting_dt <- fread(file = here("data","recruiting_data_ozan.csv"))
+recruiting_dt <- fread(file = file.path(getwd(), "data","recruiting_data_ozan.csv"))
 
 # 2017 calendar year -- students would matriculate in 2018 and graduate in 2022
 ua_recruiting_dt <- recruiting_dt[univ_id == 100751]
@@ -300,7 +321,7 @@ iv_plot <- ggplot(agg_data, aes(x = VisitBucket)) +
 
 print(iv_plot)
 
-ggsave(here("figures","recruiting_iv.png"), plot = iv_plot,
+ggsave(file.path(getwd(),"figures","recruiting_iv.png"), plot = iv_plot,
        width = 8, height = 4.5)
 
 
@@ -340,11 +361,11 @@ merged_ua_hs_visit_changes_dt[, ChangeUACount := fifelse(is.na(ChangeUACount), 0
 
 merged_ua_hs_visit_changes_dt[, InAL := fifelse(StateName == "AL", 1, 0)]
 
-feols(ChangeUACount ~ VisitCount | InAL, data = merged_ua_hs_visit_all_dt, vcov = 'hc1')
+feols(ChangeUACount ~ VisitCount | InAL, data = merged_ua_hs_visit_changes_dt, vcov = 'hc1')
 
-feols(ChangeUACount ~ VisitCount, data = merged_ua_hs_visit_all_dt[InAL == 0], vcov = 'hc1')
+feols(ChangeUACount ~ VisitCount, data = merged_ua_hs_visit_changes_dt[InAL == 0], vcov = 'hc1')
 
-feols(ChangeUACount ~ VisitCount, data = merged_ua_hs_visit_all_dt[InAL == 1], vcov = 'hc1')
+feols(ChangeUACount ~ VisitCount, data = merged_ua_hs_visit_changes_dt[InAL == 1], vcov = 'hc1')
 
 
 
@@ -371,8 +392,376 @@ iv_plot_changes <- ggplot(agg_data_changes, aes(x = VisitBucket)) +
 
 print(iv_plot_changes)
 
-ggsave(here("figures","recruiting_iv_changes.png"), plot = iv_plot_changes,
+ggsave(file.path(getwd(),"figures","recruiting_iv_changes.png"), plot = iv_plot_changes,
        width = 8, height = 4.5)
+
+### iv. look back at correlation of recruiting IV with baseline (2021) shares
+
+ua_2021_dt <- ua_dt[Year == 2021 & OriginState != "International" & OriginTown != ""]
+
+total_out_ua_2021 <- ua_2021_dt[OriginState != "AL",.N]
+
+ua_counts_2021_dt <- ua_2021_dt[,.N, by = .(OriginTown, OriginState)]
+setnames(ua_counts_2021_dt, "N", "UACount_2021")
+
+out_state_2021_dt <- ua_counts_2021_dt[OriginState != "AL"]
+
+out_state_2021_dt[, Share_UACount_2021 := 100 * (UACount_2021 / total_out_ua_2021)]
+
+ua_hs_visit_dt[, TownName := event_city]
+ua_hs_visit_dt[, StateName := event_state]
+
+visit_counts_dt <- ua_hs_visit_dt[TownName != "", .N, by = .(TownName, StateName)]
+setnames(visit_counts_dt, "N", "VisitCount")
+
+merged_2021_dt <- merge(out_state_2021_dt, visit_counts_dt, by.x = c("OriginTown", "OriginState"), 
+                   by.y = c("TownName", "StateName"), all.x = T, all.y = T)
+
+merged_2021_dt[, Share_UACount_2021 := fifelse(is.na(Share_UACount_2021), 0, Share_UACount_2021)]
+merged_2021_dt[, UACount_2021 := fifelse(is.na(UACount_2021), 0, UACount_2021)]
+
+merged_2021_dt[, VisitCount := fifelse(is.na(VisitCount), 0, VisitCount)]
+
+merged_2021_dt[, LogCount := fifelse(VisitCount >= 1, log(VisitCount), 0)]
+
+merged_2021_dt[, VisitFlag := fifelse(VisitCount > 0, 1, 0)]
+
+
+## regression
+feols(VisitCount ~ Share_UACount_2021, data = merged_2021_dt, vcov = 'hc1')
+feols(VisitCount ~ UACount_2021, data = merged_2021_dt, vcov = 'hc1')
+feols(VisitFlag ~ UACount_2021, data = merged_2021_dt, vcov = 'hc1')
+
+merged_2021_dt[VisitCount >= 10, VisitBucket := ">= 10"]
+merged_2021_dt[is.na(VisitBucket), VisitBucket := as.character(VisitCount)]
+
+agg_data_2021 <- merged_2021_dt[, .(
+  Mean_UAShare_2021 = mean(Share_UACount_2021, na.rm = TRUE),
+  Mean_UACount_2021 = mean(UACount_2021, na.rm = TRUE),
+  Place_Count = .N
+), by = VisitBucket]
+
+agg_data_2021[, VisitBucket := factor(VisitBucket, levels = 
+                                        sort(as.numeric(unique(VisitBucket[VisitBucket != ">= 10"])), na.last = TRUE) %>% as.character() %>% c(">= 10"))]
+
+## create the plot
+correlation_plot <- ggplot(agg_data_2021, aes(x = VisitBucket)) +
+  geom_bar(aes(y = Place_Count / max(Place_Count) * max(Mean_UACount_2021)), 
+           stat = "identity", fill = "#440154FF", color = 'black', alpha = 0.6) +  # Scaled background bars for places
+  geom_point(aes(y = Mean_UACount_2021), color = "#FDE725FF", size = 3) +  # Scatter points
+  geom_line(aes(y = Mean_UACount_2021, group = 1), color = "#FDE725FF", size = 1.5, linetype = 'dashed') +  # Line connecting points
+  scale_y_continuous(
+    name = "Avg Graduate Count (2021)",
+    sec.axis = sec_axis(~ . * max(agg_data_2021$Place_Count) / max(agg_data_2021$Mean_UACount_2021), 
+                        name = "# of Towns")  # Secondary y-axis
+  ) +
+  theme_bw() + removeGridX() +  
+  labs(x = "Recruiting Visits (2017)") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+## display the plot
+print(correlation_plot)
+
+ggsave(file.path(getwd(),"figures","descriptive-figs","recruiting_iv_2021_counts.png"), plot = correlation_plot,
+       width = 8, height = 4.5)
+
+### v. look at how recruiting predicts 2022 shares conditional on 2017 shares
+
+# extract 2017 & 2022 data (excluding international)
+ua_2017_dt <- ua_dt[Year == 2017 & OriginState != "International" & OriginTown != "" & OriginState != "AL"]
+ua_2022_dt <- ua_dt[Year == 2022 & OriginState != "International" & OriginTown != "" & OriginState != "AL"]
+
+# compute total UA students per year
+total_ua_2017 <- ua_2017_dt[, .N]
+total_ua_2022 <- ua_2022_dt[, .N]
+
+# compute town-level counts
+ua_counts_2017_dt <- ua_2017_dt[,.N, by = .(OriginTown, OriginState)]
+ua_counts_2022_dt <- ua_2022_dt[,.N, by = .(OriginTown, OriginState)]
+
+setnames(ua_counts_2017_dt, "N", "UACount_2017")
+setnames(ua_counts_2022_dt, "N", "UACount_2022")
+
+# compute town-level OOS share for 2017 & 2022
+ua_counts_2017_dt[, Share_OOS_2017 := 100 * (UACount_2017 / total_ua_2017)]
+ua_counts_2022_dt[, Share_OOS_2022 := 100 * (UACount_2022 / total_ua_2022)]
+
+# merge 2017 and 2022 data
+merged_oos_dt <- merge(ua_counts_2017_dt, ua_counts_2022_dt, 
+                       by = c("OriginTown", "OriginState"), all = TRUE)
+
+# fill NA values with 0 (for towns that appear in only one year)
+merged_oos_dt[, Share_OOS_2017 := fifelse(is.na(Share_OOS_2017), 0, Share_OOS_2017)]
+merged_oos_dt[, Share_OOS_2022 := fifelse(is.na(Share_OOS_2022), 0, Share_OOS_2022)]
+merged_oos_dt[, UACount_2017 := fifelse(is.na(UACount_2017), 0, UACount_2017)]
+merged_oos_dt[, UACount_2022 := fifelse(is.na(UACount_2022), 0, UACount_2022)]
+
+# merge with recruiting visits
+visit_counts_dt <- ua_hs_visit_dt[event_city != "", .N, by = .(event_city, event_state)]
+setnames(visit_counts_dt, c("event_city", "event_state"), c("OriginTown", "OriginState"))
+setnames(visit_counts_dt, "N", "VisitCount")
+
+# merge visits with OOS shares
+merged_oos_dt <- merge(merged_oos_dt, visit_counts_dt, 
+                       by = c("OriginTown", "OriginState"), all.x = TRUE)
+
+# replace NA counts with 0 (no recorded visits)
+merged_oos_dt[, VisitCount := fifelse(is.na(VisitCount), 0, VisitCount)]
+
+# run regression
+
+oos_model_shares <- feols(Share_OOS_2022 ~ VisitCount + Share_OOS_2017, 
+                          data = merged_oos_dt, vcov = ~OriginState)
+summary(oos_model_shares)
+
+oos_model_levels <- feols(UACount_2022 ~ VisitCount + UACount_2017, 
+                   data = merged_oos_dt, vcov = ~OriginState)
+summary(oos_model_levels)
+
+### vi. extend regression analysis
+
+
+# Step 1: Compute town-level enrollment counts and shares for every year from 2006-2022
+ua_yearly_counts <- list()
+total_ua_per_year <- ua_dt[OriginState != "International" & OriginTown != "" & OriginState != "AL", .N, by = Year]
+
+for (yr in 2006:2022) {
+  # Extract town-level counts
+  ua_yearly_counts[[as.character(yr)]] <- ua_dt[Year == yr & OriginState != "International" & OriginTown != "" & OriginState != "AL",
+                                                .N, by = .(OriginTown, OriginState)]
+  setnames(ua_yearly_counts[[as.character(yr)]], "N", paste0("UACount_", yr))
+  
+  # Merge with total UA students per year to compute shares
+  total_students <- total_ua_per_year[Year == yr, N]
+  if (!is.na(total_students)) {
+    ua_yearly_counts[[as.character(yr)]][, paste0("Share_OOS_", yr) := 100 * get(paste0("UACount_", yr)) / total_students]
+  }
+}
+
+# Step 2: Merge all years together into a single dataset
+merged_oos_dt <- Reduce(function(dt1, dt2) merge(dt1, dt2, by = c("OriginTown", "OriginState"), all = TRUE), ua_yearly_counts)
+
+# Fill missing values with 0 for towns that appear in only some years
+for (yr in 2006:2022) {
+  merged_oos_dt[, paste0("UACount_", yr) := fifelse(is.na(get(paste0("UACount_", yr))), 0, get(paste0("UACount_", yr)))]
+  merged_oos_dt[, paste0("Share_OOS_", yr) := fifelse(is.na(get(paste0("Share_OOS_", yr))), 0, get(paste0("Share_OOS_", yr)))]
+}
+
+# Step 3: Merge with recruiting visit data
+visit_counts_dt <- ua_hs_visit_dt[event_city != "", .N, by = .(event_city, event_state)]
+setnames(visit_counts_dt, c("event_city", "event_state"), c("OriginTown", "OriginState"))
+setnames(visit_counts_dt, "N", "VisitCount")
+
+merged_oos_dt <- merge(merged_oos_dt, visit_counts_dt, by = c("OriginTown", "OriginState"), all.x = TRUE)
+merged_oos_dt[, VisitCount := fifelse(is.na(VisitCount), 0, VisitCount)]
+
+merged_oos_dt[, VisitFlag := fifelse(VisitCount > 0, 1, 0)]
+
+## (a) visit count
+
+# initialize a list to store results
+results <- list()
+
+# loop over years and run regressions
+for (yr in 2018:2021) {
+  # construct formula dynamically
+  formula_levels <- as.formula(paste0("UACount_2022 ~ VisitCount + UACount_", yr))
+  
+  model_levels <- feols(formula_levels, data = merged_oos_dt, vcov = ~OriginState)
+  
+  coef_visit <- coef(model_levels)["VisitCount"]
+  pval_visit <- pvalue(model_levels)["VisitCount"]
+  tstat_visit <- tstat(model_levels)["VisitCount"]
+  se_visit <- se(model_levels)["VisitCount"]  
+  
+  coef_uacount <- coef(model_levels)[paste0("UACount_", yr)]
+  pval_uacount <- pvalue(model_levels)[paste0("UACount_", yr)]
+  tstat_uacount <- tstat(model_levels)[paste0("UACount_", yr)]
+  se_uacount <- se(model_levels)[paste0("UACount_", yr)]  
+  
+  sample_size <- nobs(model_levels)  
+  r2_value <- r2(model_levels)[1]  
+  
+  # store results in a single-row data.table
+  results[[as.character(yr)]] <- data.table(
+    Year = as.numeric(yr), 
+    Beta_Visit = coef_visit, 
+    SE_Visit = se_visit,  
+    P_Value_Visit = pval_visit, 
+    T_Stat_Visit = tstat_visit,
+    
+    Beta_UACount = coef_uacount,
+    SE_UACount = se_uacount,  
+    P_Value_UACount = pval_uacount,
+    T_Stat_UACount = tstat_uacount,
+    
+    N = sample_size,
+    R2 = r2_value
+  )
+}
+
+# combine all results into a single data.table
+beta_results_dt <- rbindlist(results)
+
+# print results
+print(beta_results_dt)
+
+## (b) visit flag
+
+# initialize a list to store results
+results <- list()
+
+# loop over years and run regressions
+for (yr in 2018:2021) {
+  # construct formula dynamically
+  formula_levels <- as.formula(paste0("UACount_2022 ~ VisitFlag + UACount_", yr))
+  
+  model_levels <- feols(formula_levels, data = merged_oos_dt, vcov = ~OriginState)
+  
+  coef_visit <- coef(model_levels)["VisitFlag"]
+  pval_visit <- pvalue(model_levels)["VisitFlag"]
+  tstat_visit <- tstat(model_levels)["VisitFlag"]
+  se_visit <- se(model_levels)["VisitFlag"]  
+  
+  coef_uacount <- coef(model_levels)[paste0("UACount_", yr)]
+  pval_uacount <- pvalue(model_levels)[paste0("UACount_", yr)]
+  tstat_uacount <- tstat(model_levels)[paste0("UACount_", yr)]
+  se_uacount <- se(model_levels)[paste0("UACount_", yr)]  
+  
+  sample_size <- nobs(model_levels)  
+  r2_value <- r2(model_levels)[1]  
+  
+  # store results in a single-row data.table
+  results[[as.character(yr)]] <- data.table(
+    Year = as.numeric(yr), 
+    Beta_Visit = coef_visit, 
+    SE_Visit = se_visit,  
+    P_Value_Visit = pval_visit, 
+    T_Stat_Visit = tstat_visit,
+    
+    Beta_UACount = coef_uacount,
+    SE_UACount = se_uacount,  
+    P_Value_UACount = pval_uacount,
+    T_Stat_UACount = tstat_uacount,
+    
+    N = sample_size,
+    R2 = r2_value
+  )
+}
+
+# combine all results into a single data.table
+beta_results_dt <- rbindlist(results)
+
+# print results
+print(beta_results_dt)
+
+## (c) predicted enrollment (2021-2020)
+
+# compute the growth rate gm
+merged_oos_dt[, enrollment_growth := (UACount_2021 / UACount_2020) - 1]
+
+# compute predicted 2022 enrollment
+merged_oos_dt[, Predicted_UACount_2022 := (1 + enrollment_growth) * UACount_2021]
+
+results <- list()
+
+# Construct formula using Predicted_UACount_2022 instead of UACount_yr
+formula_levels <- as.formula("UACount_2022 ~ VisitFlag + Predicted_UACount_2022")
+
+# Run fixed effects regression with clustered SE by OriginState
+model_levels <- feols(formula_levels, data = merged_oos_dt, vcov = ~OriginState)
+
+# Extract statistics for VisitCount
+coef_visit <- coef(model_levels)["VisitFlag"]
+pval_visit <- pvalue(model_levels)["VisitFlag"]
+tstat_visit <- tstat(model_levels)["VisitFlag"]
+se_visit <- se(model_levels)["VisitFlag"]
+
+# Extract statistics for Predicted_UACount_2022
+coef_predicted <- coef(model_levels)["Predicted_UACount_2022"]
+pval_predicted <- pvalue(model_levels)["Predicted_UACount_2022"]
+tstat_predicted <- tstat(model_levels)["Predicted_UACount_2022"]
+se_predicted <- se(model_levels)["Predicted_UACount_2022"]
+
+# Extract additional model statistics
+sample_size <- nobs(model_levels)  # Sample size (N)
+r2_value <- r2(model_levels)[1]  # R-squared value
+
+# Store results in a single-row data.table
+results[[as.character(yr)]] <- data.table(
+  Beta_Visit = coef_visit, 
+  SE_Visit = se_visit, 
+  P_Value_Visit = pval_visit, 
+  T_Stat_Visit = tstat_visit,
+  
+  Beta_Predicted_UACount = coef_predicted,
+  SE_Predicted_UACount = se_predicted,
+  P_Value_Predicted_UACount = pval_predicted,
+  T_Stat_Predicted_UACount = tstat_predicted,
+  
+  N = sample_size,
+  R2 = r2_value
+)
+
+# Combine all results into a single data.table
+beta_results_dt <- rbindlist(results)
+
+# Print results
+print(beta_results_dt)
+
+## (d) 2019 - 2020 to get growth rates
+
+# Compute the growth rate gm using 2019 to 2020 enrollment
+merged_oos_dt[, enrollment_growth := (UACount_2020 / UACount_2019) - 1]
+
+# Compute predicted 2022 enrollment
+merged_oos_dt[, Predicted_UACount_2022 := (1 + enrollment_growth) * UACount_2021]
+
+results <- list()
+
+# Construct formula using Predicted_UACount_2022 instead of UACount_yr
+formula_levels <- as.formula("UACount_2022 ~ VisitCount + Predicted_UACount_2022")
+
+# Run fixed effects regression with clustered SE by OriginState
+model_levels <- feols(formula_levels, data = merged_oos_dt, vcov = ~OriginState)
+
+# Extract statistics for VisitCount
+coef_visit <- coef(model_levels)["VisitCount"]
+pval_visit <- pvalue(model_levels)["VisitCount"]
+tstat_visit <- tstat(model_levels)["VisitCount"]
+se_visit <- se(model_levels)["VisitCount"]
+
+# Extract statistics for Predicted_UACount_2022
+coef_predicted <- coef(model_levels)["Predicted_UACount_2022"]
+pval_predicted <- pvalue(model_levels)["Predicted_UACount_2022"]
+tstat_predicted <- tstat(model_levels)["Predicted_UACount_2022"]
+se_predicted <- se(model_levels)["Predicted_UACount_2022"]
+
+# Extract additional model statistics
+sample_size <- nobs(model_levels)  # Sample size (N)
+r2_value <- r2(model_levels)[1]  # R-squared value
+
+# Store results in a single-row data.table
+results[[1]] <- data.table(
+  Beta_Visit = coef_visit, 
+  SE_Visit = se_visit, 
+  P_Value_Visit = pval_visit, 
+  T_Stat_Visit = tstat_visit,
+  
+  Beta_Predicted_UACount = coef_predicted,
+  SE_Predicted_UACount = se_predicted,
+  P_Value_Predicted_UACount = pval_predicted,
+  T_Stat_Predicted_UACount = tstat_predicted,
+  
+  N = sample_size,
+  R2 = r2_value
+)
+
+# Combine all results into a single data.table
+beta_results_dt <- rbindlist(results)
+
+# Print results
+print(beta_results_dt)
 
 
 #=====================================================================
@@ -381,7 +770,7 @@ ggsave(here("figures","recruiting_iv_changes.png"), plot = iv_plot_changes,
 
 ### i. access SQLite database -- 2016 data is not interesting
 
-mydb <- dbConnect(RSQLite::SQLite(), here("data","ozan-sql-data","marketing_server_Alabama.sqlite"))
+mydb <- dbConnect(RSQLite::SQLite(), file.path(getwd(),"data","ozan-sql-data","marketing_server_Alabama.sqlite"))
 
 tables <- dbListTables(mydb)
 print(tables)
@@ -390,23 +779,162 @@ dt_twitter_handles <- as.data.table(dbReadTable(mydb, "twitter_handles"))
 dt_twitter_hashtags <- as.data.table(dbReadTable(mydb, "twitter_hashtags"))
 dt_web_scraping <- as.data.table(dbReadTable(mydb, "web_scraping"))
 
-### ii. access future data?
+### ii. access future data? on hold for now xxx
+
+
+
 
 #=====================================================================
-# 5 - read and explore the appropriations data
+# 5 - read and edit the linked commencement data
 #=====================================================================
 
-### i. read in appropriations data 
+### i. read data 
+linked_dt <- fread(file = file.path(getwd(), "data", "linked_commencement_revelio_profile_data.csv"))
 
-appropriations_dt <- fread(file = here("data","appropriations_data.csv"))
+### ii. clean degree and honors information
+linked_dt[, DegreeGroup := fcase(
+  uaDegree %flike% "Business", "Business",
+  uaDegree %flike% "Computer", "Computer Science",
+  uaDegree %flike% "Music", "Music",
+  uaDegree %flike% "Engineer" | uaDegree %flike% "Eng.", "Engineering",
+  uaDegree %flike% "Nursing", "Nursing",
+  uaDegree %flike% "Social Work", "Social Work",
+  uaDegree %flike% "Education", "Education",
+  uaDegree %flike% "Fine Arts", "Fine Arts",
+  uaDegree %flike% "Communication", "Communication and Information Sciences",
+  uaDegree %flike% "Human" | uaDegree %flike% "Athletic", "Human Environmental Sciences",
+  default = "General"
+)]
 
-appropriations_sample_dt <- appropriations_dt[FY >= 2011 & FY <= 2015]
+linked_dt[, DegreeGroupFinal := fcase(
+  DegreeGroup == "General" & uaDegree %flike% "Arts", "BA - General", 
+  DegreeGroup == "General" & uaDegree %flike% "Science", "BS - General", 
+  DegreeGroup == "General" & uaDegree %flike% "Science", "BS - General", 
+  DegreeGroup == "Engineering" & uaDegree %flike% "Construction", "Construction Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Aerospace", "Aerospace Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Chemical", "Chemical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Civil", "Civil Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Electric", "Electrical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Industrial", "Industrial Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Mechanical", "Mechanical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Metallurgical", "Metallurgical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Architectural", "Architectural Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Environmental", "Environmental Engineering",
+  default = DegreeGroup
+)]
 
-### ii. convert character (dollar / enrollment) columns to numeric
-
-### iii. read in 
-
+linked_dt[, STEM := fifelse(DegreeGroup == "Engineering" | DegreeGroupFinal %flike% "BS" | 
+                          DegreeGroup %in% c("Human Environmental Sciences", "Nursing", "Computer Science"), 1, 0 )]
 
 
 
+### iii. add out of state indicator
 
+linked_dt[, OutFlag := fifelse(originState != "AL", 1, 0)]
+
+## (a) simple summary stats
+
+summary_stats_linked_dt <- linked_dt[, .(
+  total_count = .N,  # Count of observations per year
+  avg_STEM = round(100* mean(STEM, na.rm = TRUE),2),  # Average STEM indicator
+  avg_1_minus_OutFlag = round(100* mean(1 - OutFlag, na.rm = TRUE),2)  # Average of 1 - OutFlag
+), by = Year]
+
+
+#=====================================================================
+# 6 - read and edit the linked commencement data + job histories
+#=====================================================================
+
+### i. read data 
+
+## (a) linked data 
+revelio_ua_link_dt <- fread(file = file.path(getwd(), "data", "linked_commencement_revelio_profile_data.csv"))
+
+## (b) first spell
+first_spells_join_dt <- readRDS(file.path(getwd(), "revelio_data", "first_spell_join.rds"))
+setDT(first_spells_join_dt)
+
+
+states_dt <- data.table(originState = state.abb,
+                        state = state.name) %>%
+  bind_rows(data.frame(originState = 'DC', state = 'Washington, D.C.'))
+
+
+### ii. clean up revelio - UA link origin states
+
+# Clean up states of origin
+revelio_ua_link_dt <- revelio_ua_link_dt %>%
+  # Remove students with missing graduation years
+  filter(!is.na(Year)) %>%
+  mutate(originState = gsub(' ', '', originState)) %>%
+  # State will be NA for origins outside the US
+  left_join(states_dt) %>%
+  # Filter to US origins for now
+  filter(!is.na(state)) %>%
+  rename(grad_y = Year)
+
+### iii. clean up first job 
+
+first_spells_join_dt <- first_spells_join_dt %>%
+  filter(country == 'United States')
+
+first_spells_limited_dt <- first_spells_join_dt[,c("user_id","role_k1500","state","salary","total_compensation")]
+
+setnames(first_spells_limited_dt, "state", "postgrad_state")
+
+### iv. link two datasets and do some quick share calculations
+
+join_dt <- merge(revelio_ua_link_dt, first_spells_limited_dt, by = 'user_id')
+
+join_dt <- setDT(join_dt)
+
+
+
+### ii. clean degree and honors information
+join_dt[, DegreeGroup := fcase(
+  uaDegree %flike% "Business", "Business",
+  uaDegree %flike% "Computer", "Computer Science",
+  uaDegree %flike% "Music", "Music",
+  uaDegree %flike% "Engineer" | uaDegree %flike% "Eng.", "Engineering",
+  uaDegree %flike% "Nursing", "Nursing",
+  uaDegree %flike% "Social Work", "Social Work",
+  uaDegree %flike% "Education", "Education",
+  uaDegree %flike% "Fine Arts", "Fine Arts",
+  uaDegree %flike% "Communication", "Communication and Information Sciences",
+  uaDegree %flike% "Human" | uaDegree %flike% "Athletic", "Human Environmental Sciences",
+  default = "General"
+)]
+
+join_dt[, DegreeGroupFinal := fcase(
+  DegreeGroup == "General" & uaDegree %flike% "Arts", "BA - General", 
+  DegreeGroup == "General" & uaDegree %flike% "Science", "BS - General", 
+  DegreeGroup == "General" & uaDegree %flike% "Science", "BS - General", 
+  DegreeGroup == "Engineering" & uaDegree %flike% "Construction", "Construction Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Aerospace", "Aerospace Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Chemical", "Chemical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Civil", "Civil Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Electric", "Electrical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Industrial", "Industrial Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Mechanical", "Mechanical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Metallurgical", "Metallurgical Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Architectural", "Architectural Engineering",
+  DegreeGroup == "Engineering" & uaDegree %flike% "Environmental", "Environmental Engineering",
+  default = DegreeGroup
+)]
+
+join_dt[, STEM := fifelse(DegreeGroup == "Engineering" | DegreeGroupFinal %flike% "BS" | 
+                              DegreeGroup %in% c("Human Environmental Sciences", "Nursing", "Computer Science"), 1, 0 )]
+
+
+
+### iii. add out of state indicator
+
+join_dt[, OutFlag := fifelse(originState != "AL", 1, 0)]
+
+## (a) simple summary stats
+
+summary_stats_linked_history_dt <- join_dt[, .(
+  total_count = .N,  # Count of observations per year
+  avg_STEM = round(100* mean(STEM, na.rm = TRUE),2),  # Average STEM indicator
+  avg_1_minus_OutFlag = round(100* mean(1 - OutFlag, na.rm = TRUE),2)  # Average of 1 - OutFlag
+), by = grad_y]

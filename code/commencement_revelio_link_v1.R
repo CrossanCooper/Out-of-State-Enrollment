@@ -1,9 +1,12 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-3-25
+## Last Modified: 2-11-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
+#
+# also examine selection into matching for Appendix A
+#
 #
 ## data outputs:
 # (i) data/all_alabama_data.csv -- all cleaned commencement data
@@ -36,23 +39,26 @@ setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_proj
 # 1 - read and edit the spring commencement data
 #=====================================================================
 
-bama_2018_2021_dt <- fread(here("generated_data","spring_2018_to_2021_all.csv"))
 
-bama_2006_dt <- setDT(read_excel(here("generated_data","spring_2006_all.xlsx")))
-bama_2007_dt <- setDT(read_excel(here("generated_data","spring_2007_all.xlsx")))
-bama_2008_dt <- setDT(read_excel(here("generated_data","spring_2008_bachelors.xlsx")))
-bama_2009_dt <- setDT(read_excel(here("generated_data","spring_2009_bachelors.xlsx")))
-bama_2010_dt <- setDT(read_excel(here("generated_data","spring_2010_bachelors.xlsx")))
-bama_2011_dt <- setDT(read_excel(here("generated_data","spring_2011_bachelors.xlsx")))
-bama_2012_dt <- setDT(read_excel(here("generated_data","spring_2012_bachelors.xlsx")))
-bama_2013_dt <- setDT(read_excel(here("generated_data","spring_2013_bachelors.xlsx")))
-bama_2014_dt <- setDT(read_excel(here("generated_data","spring_2014_bachelors.xlsx")))
-bama_2015_dt <- setDT(read_excel(here("generated_data","spring_2015_bachelors.xlsx")))
-bama_2016_dt <- setDT(read_excel(here("generated_data","spring_2016_bachelors.xlsx")))
-bama_2017_dt <- setDT(read_excel(here("generated_data","spring_2017_bachelors.xlsx")))
-bama_2022_dt <- setDT(read_excel(here("generated_data","spring_2022_bachelors.xlsx")))
-bama_2023_dt <- setDT(read_excel(here("generated_data","spring_2023_bachelors.xlsx")))
-bama_2024_dt <- setDT(read_excel(here("generated_data","spring_2024_bachelors.xlsx")))
+# replace here with wd: file.path(getwd(),
+
+bama_2018_2021_dt <- fread(file.path(getwd(),"generated_data","spring_2018_to_2021_all.csv"))
+
+bama_2006_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2006_all.xlsx")))
+bama_2007_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2007_all.xlsx")))
+bama_2008_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2008_bachelors.xlsx")))
+bama_2009_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2009_bachelors.xlsx")))
+bama_2010_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2010_bachelors.xlsx")))
+bama_2011_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2011_bachelors.xlsx")))
+bama_2012_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2012_bachelors.xlsx")))
+bama_2013_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2013_bachelors.xlsx")))
+bama_2014_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2014_bachelors.xlsx")))
+bama_2015_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2015_bachelors.xlsx")))
+bama_2016_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2016_bachelors.xlsx")))
+bama_2017_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2017_bachelors.xlsx")))
+bama_2022_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2022_bachelors.xlsx")))
+bama_2023_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2023_bachelors.xlsx")))
+bama_2024_dt <- setDT(read_excel(file.path(getwd(),"generated_data","spring_2024_bachelors.xlsx")))
 
 # has state already: 06, 07, 18, 19, 20, 21
 # has ", AL" for Alabama residents: 08, 09, 16, 17, 22, 23, 24
@@ -127,27 +133,27 @@ spring_all_dt <- rbind(bama_2006_dt, bama_2007_dt, bama_2008_dt,
 # 1 - read and edit the summer and fall commencement data
 #=====================================================================
 
-summer_fall_2007_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2007_bachelors.xlsx")))
-summer_fall_2008_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2008_bachelors.xlsx")))
-summer_fall_2009_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2009_bachelors.xlsx")))
-summer_fall_2010_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2010_bachelors.xlsx")))
-summer_fall_2011_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2011_bachelors.xlsx")))
-summer_fall_2012_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2012_bachelors.xlsx")))
-summer_fall_2013_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2013_bachelors.xlsx")))
-summer_fall_2014_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2014_bachelors.xlsx")))
-summer_fall_2015_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2015_bachelors.xlsx")))
-summer_fall_2016_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2016_bachelors.xlsx")))
-summer_fall_2017_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2017_bachelors.xlsx")))
-summer_fall_2021_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2021_bachelors.xlsx")))
-summer_fall_2022_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2022_bachelors.xlsx")))
-summer_fall_2023_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2023_bachelors.xlsx")))
+summer_fall_2007_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2007_bachelors.xlsx")))
+summer_fall_2008_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2008_bachelors.xlsx")))
+summer_fall_2009_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2009_bachelors.xlsx")))
+summer_fall_2010_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2010_bachelors.xlsx")))
+summer_fall_2011_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2011_bachelors.xlsx")))
+summer_fall_2012_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2012_bachelors.xlsx")))
+summer_fall_2013_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2013_bachelors.xlsx")))
+summer_fall_2014_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2014_bachelors.xlsx")))
+summer_fall_2015_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2015_bachelors.xlsx")))
+summer_fall_2016_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2016_bachelors.xlsx")))
+summer_fall_2017_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2017_bachelors.xlsx")))
+summer_fall_2021_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2021_bachelors.xlsx")))
+summer_fall_2022_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2022_bachelors.xlsx")))
+summer_fall_2023_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2023_bachelors.xlsx")))
 
-summer_2024_bachelors_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_2024_bachelors.xlsx")))
+summer_2024_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_2024_bachelors.xlsx")))
 
-summer_fall_2006_all_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2006_all.xlsx")))
-summer_fall_2018_all_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2018_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
-summer_fall_2019_all_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2019_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
-summer_fall_2020_all_dt <- setDT(read_excel(here("generated_data","Summer and Fall","summer_fall_2020_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
+summer_fall_2006_all_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2006_all.xlsx")))
+summer_fall_2018_all_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2018_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
+summer_fall_2019_all_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2019_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
+summer_fall_2020_all_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2020_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
 
 ### limit "all" degree years to just bachelors - modify 2006, 2018-2020 to just bachelors
 summer_fall_2006_bachelors_dt <- summer_fall_2006_all_dt[Degree %flike% "Bachelor"]
@@ -308,7 +314,7 @@ bar_plot <- ggplot(for_plot_all_years_dt, aes(x = Year, y = Share, group = Origi
 
 print(bar_plot)
 
-ggsave(here("figures","trends_enrollment.png"), plot = bar_plot,
+ggsave(file.path(getwd(),"figures","trends_enrollment.png"), plot = bar_plot,
        width = 8, height = 4.5)
 
 ### ii. area plot (preferred figure)
@@ -333,7 +339,7 @@ area_plot <- ggplot(for_area_plot_dt[Year <= 2023], aes(x = Year, y = RelativeTo
 
 print(area_plot)
 
-ggsave(here("figures","trends_enrollment_area.png"), plot = area_plot,
+ggsave(file.path(getwd(),"figures","trends_enrollment_area.png"), plot = area_plot,
        width = 8, height = 4.5)
 
 
@@ -392,7 +398,7 @@ shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares2
 
 print(shares_plot)
 
-ggsave(here("figures","oos_shares_plot.png"), plot = shares_plot,
+ggsave(file.path(getwd(),"figures","oos_shares_plot.png"), plot = shares_plot,
        width = 8, height = 4.5)
 
 #=====================================================================
@@ -475,7 +481,7 @@ all_bachelors_dt[, `:=` (
   last_name = gsub(",","",last_name)
                     )]
 
-fwrite(all_bachelors_dt, here("data","all_alabama_data.csv"))
+fwrite(all_bachelors_dt, file.path(getwd(),"data","all_alabama_data.csv"))
 
 #=====================================================================
 # 7 - set up the merge with revelio data
@@ -483,7 +489,7 @@ fwrite(all_bachelors_dt, here("data","all_alabama_data.csv"))
 
 ### i. read in revelio labs data (linked ed data / profile data )
 
-revelio_dt <- fread(here("revelio_data","linked_revelio_data.csv"))
+revelio_dt <- fread(file.path(getwd(),"revelio_data","linked_revelio_data.csv"))
 
 # process name strings -- removes suffixes
 revelio_dt[, fullname := sub(",.*","", fullname)]
@@ -557,7 +563,7 @@ nrow(unique(formatch_revelio_dt, by = c("first_name","last_name","Year")))
 nrow(unique(formatch_revelio_dt, by = c("user_id")))
 
 ### vii. write the processed revelio data to output
-fwrite(formatch_revelio_dt, here("data","cleaned_ua_revelio.csv"))
+fwrite(formatch_revelio_dt, file.path(getwd(),"data","cleaned_ua_revelio.csv"))
 
 #=====================================================================
 # 8 - run the merge with revelio data
@@ -990,7 +996,7 @@ unique_matched_clean_dt <- unique_matched_dt[, c("first_name",
 
 ## (c) write file to output
 
-fwrite(unique_matched_clean_dt, file = here("data","linked_commencement_revelio_profile_data.csv"))
+fwrite(unique_matched_clean_dt, file = file.path(getwd(),"data","linked_commencement_revelio_profile_data.csv"))
 
 
 #=====================================================================
@@ -1059,10 +1065,43 @@ formatch_bachelors_dt[, SpringFlag := fifelse(
   Commencement != "Spring", 0, 1
 )]
 
+formatch_bachelors_dt[, InState := fifelse(
+  `Origin State` %flike% "AL", 1, 0
+)]
 
 reg_revelio <- feols(Matched ~ f_prob + white_prob + degreeGroup | Year, data = formatch_revelio_dt)
-reg_bachelors <- feols(Matched ~ DegreeGroup + HonorsFlag + SpringFlag | `Origin State` + Year, data = formatch_bachelors_dt)
+reg_bachelors <- feols(Matched ~ HonorsFlag + SpringFlag + InState | Year, data = formatch_bachelors_dt)
 
-# Show results
 summary(reg_revelio)
 summary(reg_bachelors)
+
+## (b) differences in means
+
+summary_revelio <- formatch_revelio_dt[, .(
+  mean_f_prob = mean(f_prob, na.rm = TRUE),
+  mean_white_prob = mean(white_prob, na.rm = TRUE)
+), by = Matched]
+
+diff_revelio <- summary_revelio[Matched == 1, -1] - summary_revelio[Matched == 0, -1]
+
+t_f_prob <- t.test(f_prob ~ Matched, data = formatch_revelio_dt, var.equal = TRUE)
+t_white_prob <- t.test(white_prob ~ Matched, data = formatch_revelio_dt, var.equal = TRUE)
+
+summary_bachelors <- formatch_bachelors_dt[, .(
+  mean_HonorsFlag = mean(HonorsFlag, na.rm = TRUE),
+  mean_SpringFlag = mean(SpringFlag, na.rm = TRUE),
+  mean_InStateFlag = mean(InState, na.rm = TRUE)
+), by = Matched]
+
+diff_bachelors <- summary_bachelors[Matched == 1, -1] - summary_bachelors[Matched == 0, -1]
+
+t_HonorsFlag <- t.test(HonorsFlag ~ Matched, data = formatch_bachelors_dt, var.equal = TRUE)
+t_SpringFlag <- t.test(SpringFlag ~ Matched, data = formatch_bachelors_dt, var.equal = TRUE)
+t_InState <- t.test(InState ~ Matched, data = formatch_bachelors_dt, var.equal = TRUE)
+
+diff_revelio[, p_value_f_prob := t_f_prob$p.value]
+diff_revelio[, p_value_white_prob := t_white_prob$p.value]
+
+diff_bachelors[, p_value_HonorsFlag := t_HonorsFlag$p.value]
+diff_bachelors[, p_value_SpringFlag := t_SpringFlag$p.value]
+diff_bachelors[, p_value_InState := t_InState$p.value]

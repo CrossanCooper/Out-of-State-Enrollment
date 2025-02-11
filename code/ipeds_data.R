@@ -232,11 +232,11 @@ analysis_dt <- analysis_dt[, other_share := (foreign + not_listed)/total]
 
 final_analysis_dt <- analysis_dt[other_share != 1]
 
-fwrite(final_analysis_dt, here("data","flagship_panel.csv"))
+fwrite(final_analysis_dt, file.path(getwd(),"data","flagship_panel.csv"))
 
 # temporary check
 
-temp_dt <- fread(here("data","flagship_panel.csv"))
+temp_dt <- fread(file.path(getwd(),"data","flagship_panel.csv"))
 
 temp_2000_dt <- temp_dt[year == 2000]
 
@@ -285,7 +285,7 @@ shares_timeseries <- ggplot(data = melted_dt, aes(x = year, y = average, group =
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
     text = element_text(size = 12)) 
 
-ggsave(here("figures","enrollment_shares_time.jpg"),
+ggsave(file.path(getwd(),"figures","enrollment_shares_time.jpg"),
        plot = shares_timeseries,width = 8, height = 4.5)
 
 ## changes from 2000
@@ -321,7 +321,7 @@ shares_diff_plot <- ggplot(data = for_plot_diff_dt[`Student Type` != 'Other'], a
 
 print(shares_diff_plot)
 
-ggsave(here("figures","enrollment_share_changes_over_time.png"),
+ggsave(file.path(getwd(),"figures","enrollment_share_changes_over_time.png"),
        plot = shares_diff_plot,width = 8, height = 4.5)
 
 
@@ -365,7 +365,7 @@ ua_versus_all <- ggplot(data = combined_trends, aes(x = year, y = average_out_sh
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
     text = element_text(size = 12)) 
 
-ggsave(here("figures","ua_and_all_others.jpg"),
+ggsave(file.path(getwd(),"figures","ua_and_all_others.jpg"),
        plot = ua_versus_all,width = 8, height = 4.5)
 
 case_study <- ggplot(data = plot_dt[unitid == 100751| 
@@ -384,7 +384,7 @@ case_study <- ggplot(data = plot_dt[unitid == 100751|
 
 print(case_study)
 
-ggsave(here("figures","case_study_out.jpg"),
+ggsave(file.path(getwd(),"figures","case_study_out.jpg"),
        plot = case_study,width = 8, height = 4.5)
 
 
@@ -452,7 +452,7 @@ density <- ggplot(final_analysis_dt[year == 2000 | year == 2021], aes(x=out_shar
 
 print(density)
   
-ggsave(here("figures","density_out.jpg"),
+ggsave(file.path(getwd(),"figures","density_out.jpg"),
        plot = density,width = 8, height = 4.5)
 
 ## converted continuous density to histogram
