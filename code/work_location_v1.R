@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-9-25
+## Last Modified: 2-12-25
 
 ## file use: produce worker location descriptives
 #=====================================================================
@@ -87,6 +87,7 @@ join_dt[, ReturnHome := fifelse(state == postgrad_state, 1, 0)]
 join_dt[,.N,.(OutPost, OutPre, grad_y)]
 join_dt[,.N,.(OutPost, OutPre)]
 join_dt[,.N,.(ReturnHome,OutPre)]
+join_dt[,.N,.(ReturnHome,OutPre,OutPost)]
 
 dest_states_by_year <- join_dt[,.N,.(postgrad_state, grad_y)]
 dest_states_by_year[, share := N / sum(N), by = grad_y]
@@ -128,7 +129,7 @@ out_plots_type <- ggplot(outPost_share_by_year_pre, aes(x = grad_y, y = outPost_
   scale_color_viridis_d(labels = c("In-State", "Out-of-State")) +
   labs(
     x = "Graduation Year",
-    y = "Share Out-Migrating",
+    y = "Share Out-Migrating (%)",
     color = "Student Type"
   ) +
   theme_bw() + removeGridX() + ylim(29,89)+ 

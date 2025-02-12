@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-11-25
+## Last Modified: 2-12-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -330,7 +330,7 @@ for_area_plot_dt[, RelativeTo2006 := fcase(
 for_area_plot_dt[, Origin := factor(Origin, levels = c( "International","Out-of-State", "In-State"))]
 
 area_plot <- ggplot(for_area_plot_dt[Year <= 2023], aes(x = Year, y = RelativeTo2006, group = Origin, fill = Origin)) + 
-  geom_area(alpha = 0.8) + theme_bw() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
+  geom_area(alpha = 0.8, color = 'black') + theme_bw() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
   ylab("# of Degree Recipients Relative to 2006") + xlim(2006,2023) + 
   theme(
     legend.position = "bottom",
@@ -385,7 +385,7 @@ slope_text <- paste("Slope:", round(slope,2))
 shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares23)) + 
   geom_point(color = "#FDE725FF", size = 3, alpha = 0.8) + theme_bw() +
   geom_abline(slope = 1, intercept = 0, color = "#440154FF", linetype = "dashed", linewidth = 1) + 
-  # geom_smooth(method = "lm", se = T, color = "blue", linetype = "dashed") + 
+  geom_smooth(method = "lm", se = T, color = "#414487FF", linetype = "dashed") + 
   annotate("text", x = 2, y = 9, label = "IL", hjust = 1.1, vjust = 2, size = 4,
            color = "#21908CFF") + 
   annotate("text", x = 24.6, y = 12.4, label = "GA", hjust = 1.1, vjust = 2, size = 4,
@@ -396,7 +396,10 @@ shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares2
            color = "#21908CFF") + 
   labs(y = "2023 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25) 
 
+slope_val <- coef(lm_fit)[2]
+
 print(shares_plot)
+
 
 ggsave(file.path(getwd(),"figures","oos_shares_plot.png"), plot = shares_plot,
        width = 8, height = 4.5)
@@ -1003,6 +1006,8 @@ fwrite(unique_matched_clean_dt, file = file.path(getwd(),"data","linked_commence
 # 9 - examine selection into matching
 #=====================================================================
 
+### i. check the donor samples
+
 nrow(unique(formatch_revelio_dt, by = "user_id"))
 nrow(unique(unique_matched_clean_dt, by = "user_id"))
 
@@ -1010,7 +1015,17 @@ nrow(unique(formatch_bachelors_dt, by = c("UniqueID")))
 nrow(unique(unique_matched_clean_dt, by = "UniqueID"))
 
 
-# 1. Add Matched indicator to formatch_revelio_dt
+### ii. add state info to the RL data
+formatch_revelio_dt[last_name == "almohamedhusain" & first_name == "zahra", user_location == ""]
+formatch_revelio_dt[, InAL := fifelse(user_location %flike% " AL" | 
+                                      user_location %flike% "Alabama" | 
+                                        user_location %flike% "Tuscaloosa" |
+                                        user_location %flike% "Birmingham" | 
+                                        user_location %flike% "Huntsville-" |
+                                        user_location %flike% "Mobile" | 
+                                        user_location %flike% "Montgomery", 1, 0)]
+
+## 1. add matched indicator to formatch_revelio_dt
 formatch_revelio_dt[, Matched := as.integer(user_id %in% unique_matched_clean_dt$user_id)]
 
 formatch_revelio_dt[, degreeGroup := fcase(highest_degree %flike% "Associate" | 
@@ -1021,32 +1036,12 @@ formatch_revelio_dt[, degreeGroup := fcase(highest_degree %flike% "Associate" |
                                            default = "Not Listed"
                                            )]
 
-# 2. Add Matched indicator to formatch_bachelors_dt
+## 2. add matched indicator to formatch_bachelors_dt
 formatch_bachelors_dt[, Matched := as.integer(
   (UniqueID %in% unique_matched_clean_dt$UniqueID) 
 )]
 
-# Run regressions predicting selection into matching
-
-formatch_bachelors_dt[, DegreeGroup := fcase(
-  Degree %flike% "Business", "Business",
-  Degree %flike% "Engineer" | Degree %flike% "Eng.", "Engineering",
-  Degree %flike% "Computer Science", "Computer Science",
-  Degree %flike% "Nursing", "Nursing",
-  Degree %flike% "Social Work", "Social Work",
-  Degree %flike% "Education", "Education",
-  Degree %flike% "Music", "Music",
-  Degree %flike% "Fine Arts", "Fine Arts",
-  Degree %flike% "Chemistry", "Chemistry",
-  Degree %flike% "Geology", "Geology",
-  Degree %flike% "Biology" | Degree %flike% "biology", "Biology",
-  Degree %flike% "Athletic Training", "Athletic Training",
-  Degree %flike% "Communication", "Communication",
-  Degree %flike% "Human", "Human Environmental Sciences",
-  default = "General"
-)]
-
-
+### iii. run regressions predicting selection into matching
 
 formatch_bachelors_dt[, HonorsGroup := fcase(
   Honors %flike% "No" | Honors %flike% "None", "None",
@@ -1069,39 +1064,71 @@ formatch_bachelors_dt[, InState := fifelse(
   `Origin State` %flike% "AL", 1, 0
 )]
 
-reg_revelio <- feols(Matched ~ f_prob + white_prob + degreeGroup | Year, data = formatch_revelio_dt)
-reg_bachelors <- feols(Matched ~ HonorsFlag + SpringFlag + InState | Year, data = formatch_bachelors_dt)
+feols(Matched ~ InAL  | Year, data = formatch_revelio_dt)
+feols(Matched ~ InAL + f_prob | Year, data = formatch_revelio_dt)
+feols(Matched ~ InAL + white_prob | Year, data = formatch_revelio_dt)
+feols(Matched ~ InAL + f_prob + white_prob | Year, data = formatch_revelio_dt)
 
-summary(reg_revelio)
-summary(reg_bachelors)
+feols(Matched ~ InState   | Year, data = formatch_bachelors_dt)
+feols(Matched ~ InState +  SpringFlag | Year, data = formatch_bachelors_dt)
+feols(Matched ~ InState +  HonorsFlag | Year, data = formatch_bachelors_dt)
+feols(Matched ~ InState +  SpringFlag + HonorsFlag | Year, data = formatch_bachelors_dt)
 
-## (b) differences in means
+### iv. run regressions predicting selection into matching with job histories
 
-summary_revelio <- formatch_revelio_dt[, .(
-  mean_f_prob = mean(f_prob, na.rm = TRUE),
-  mean_white_prob = mean(white_prob, na.rm = TRUE)
-), by = Matched]
+## (a) for RL sample
 
-diff_revelio <- summary_revelio[Matched == 1, -1] - summary_revelio[Matched == 0, -1]
+first_spells_join_dt <- readRDS(file.path(getwd(), "revelio_data", "first_spell_join.rds"))
+setDT(first_spells_join_dt)
 
-t_f_prob <- t.test(f_prob ~ Matched, data = formatch_revelio_dt, var.equal = TRUE)
-t_white_prob <- t.test(white_prob ~ Matched, data = formatch_revelio_dt, var.equal = TRUE)
+first_spells_join_dt <- first_spells_join_dt %>%
+  filter(country == 'United States')
 
-summary_bachelors <- formatch_bachelors_dt[, .(
-  mean_HonorsFlag = mean(HonorsFlag, na.rm = TRUE),
-  mean_SpringFlag = mean(SpringFlag, na.rm = TRUE),
-  mean_InStateFlag = mean(InState, na.rm = TRUE)
-), by = Matched]
+first_spells_limited_dt <- first_spells_join_dt[,c("user_id","role_k1500","state","salary","total_compensation")]
 
-diff_bachelors <- summary_bachelors[Matched == 1, -1] - summary_bachelors[Matched == 0, -1]
+setnames(first_spells_limited_dt, "state", "postgrad_state")
 
-t_HonorsFlag <- t.test(HonorsFlag ~ Matched, data = formatch_bachelors_dt, var.equal = TRUE)
-t_SpringFlag <- t.test(SpringFlag ~ Matched, data = formatch_bachelors_dt, var.equal = TRUE)
-t_InState <- t.test(InState ~ Matched, data = formatch_bachelors_dt, var.equal = TRUE)
 
-diff_revelio[, p_value_f_prob := t_f_prob$p.value]
-diff_revelio[, p_value_white_prob := t_white_prob$p.value]
+formatch_revelio_dt[, in_formatch := 1]
+first_spells_limited_dt[, in_first_spells := 1]
 
-diff_bachelors[, p_value_HonorsFlag := t_HonorsFlag$p.value]
-diff_bachelors[, p_value_SpringFlag := t_SpringFlag$p.value]
-diff_bachelors[, p_value_InState := t_InState$p.value]
+join_dt <- merge(formatch_revelio_dt, first_spells_limited_dt, by = 'user_id', all = TRUE)
+
+# Create the flag
+join_dt[, merge_flag := fifelse(!is.na(in_formatch) & !is.na(in_first_spells), "both",
+                                fifelse(!is.na(in_formatch), "only_formatch", "only_first_spells"))]
+
+join_dt[, MatchedWork := fifelse(merge_flag == "both", 1, 0)]
+
+# Drop temporary columns
+join_dt[, c("in_formatch", "in_first_spells") := NULL]
+
+feols(MatchedWork ~ f_prob | Year, data = join_dt)
+feols(MatchedWork ~ white_prob | Year, data = join_dt)
+feols(MatchedWork ~ f_prob + white_prob | Year, data = join_dt)
+
+## (b) for UA sample
+
+# Perform a left join to bring in user_id from unique_matched_clean_dt
+formatch_bachelors_merge_dt <- merge(
+  formatch_bachelors_dt, 
+  unique_matched_clean_dt[, .(UniqueID, user_id)],  # Select only relevant columns
+  by = "UniqueID", 
+  all.x = TRUE
+)
+
+formatch_bachelors_merge_dt[, in_formatch_bach := 1]
+first_spells_limited_dt[, in_first_spells_bach := 1]
+
+join_bach_dt <- merge(formatch_bachelors_merge_dt, first_spells_limited_dt, by = 'user_id', all = TRUE)
+
+# Create the flag
+join_bach_dt[, merge_flag := fifelse(!is.na(in_formatch_bach) & !is.na(in_first_spells_bach), "both",
+                                fifelse(!is.na(in_formatch_bach), "only_formatch", "only_first_spells"))]
+
+join_bach_dt[, MatchedWork := fifelse(merge_flag == "both", 1, 0)]
+
+feols(MatchedWork ~ InState  | Year, data = join_bach_dt)
+feols(MatchedWork ~ InState +  SpringFlag | Year, data = join_bach_dt)
+feols(MatchedWork ~ InState +  HonorsFlag | Year, data = join_bach_dt)
+feols(MatchedWork ~ InState +  SpringFlag + HonorsFlag | Year, data = join_bach_dt)
