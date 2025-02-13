@@ -19,7 +19,7 @@
 rm(list=ls())
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse,data.table,ggplot2,skimr,
-               dplyr,fixest,ggmap,stargazer,sjmisc,
+               dplyr,fixest,ggmap,stargazer,sjmisc,maps,
                Hmisc,tseries,DescTools,here,censusapi,RSQLite,
                tidycensus,educationdata,foreach,binsreg,
                doParallel,readxl,did,ggExtra,DBI)
@@ -268,6 +268,70 @@ recruiting_scale_dt <- hs_recruiting_dt[,.N,.(InState_Mean, univ_id)]
 uga_hs_dt <- hs_recruiting_dt[univ_id == 139959]
 
 ua_recruiting_dt <- recruiting_dt[univ_id == 100751]
+
+# 1. Get the polygon data for the US
+usa_map <- map_data("state")
+sub_dt <- ua_recruiting_dt[
+  categorized_event_type %in% c("collegefair", "hsvisit")
+]
+
+# Summarize the total visits by state
+visits_by_state <- sub_dt[, .(total_visits = .N), by = event_state]
+
+# Map from state abbreviations to full, lowercase names
+state_xwalk <- data.table(
+  event_state = c(state.abb, "DC"),
+  region      = tolower(c(state.name, "district of columbia"))
+)
+
+# Merge summarized data with state crosswalk
+visits_by_state <- merge(visits_by_state, state_xwalk, by = "event_state", all.x = TRUE)
+
+# Merge to associate `total_visits` with each polygon
+map_visits <- merge(usa_map, visits_by_state, by = "region", all.x = TRUE)
+
+map_visits <- map_visits[order(map_visits$order), ]
+
+ua_recruiting_dt[, `Event Type` := fcase(
+  categorized_event_type == 'collegefair', 'College Fair',
+  categorized_event_type == 'hsvisit', 'High School Visit',
+  default = categorized_event_type
+)]
+
+# 2. Plot the map and the points
+ggplot() +
+  # a) US state polygons
+  geom_polygon(
+    data = map_visits,
+    aes(x = long, y = lat, group = group, fill = total_visits),
+    color = "gray70", 
+    # fill = "white",
+    # #color = "gray50"
+  ) +
+  # b) Recruiting location points
+  geom_point(
+    data = ua_recruiting_dt[categorized_event_type == "collegefair" | categorized_event_type == "hsvisit"],
+    aes(x = longitude, y = latitude, color = `Event Type`),
+    alpha = 0.8, size = 0.75
+  ) + scale_color_viridis_d() + 
+  # c) For more accurate lat/lon plotting
+  coord_quickmap() +
+  labs(
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  scale_fill_brewer(
+    name     = "Total Visits",
+    palette = 'Reds',
+    na.value = "white"
+  ) +
+  theme_bw() + removeGrid() + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)) 
+
+
 
 ## (a) check descriptives
 
