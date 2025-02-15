@@ -37,13 +37,44 @@ origin <- origin %>%
 dest <- dest %>%
   filter(country == 'United States')
 
-# Define origin shares using Commencement data
-shares <- origin %>%
+# Define origin shares using IPEDS data
+
+# Bring in IPEDS shares (along with selectivity IV)
+iv <- readRDS(paste0(pathHome, 'data/selectivity_iv.rds')) %>%
+  left_join(rename(states, STABBR = originState)) %>%
+  # Translate year of enrollment to likely graduation year for that cohort
+  mutate(grad_y = y + 4)
+
+# Get IPEDS origin shares
+ipeds_shares <- iv %>%
+  group_by(grad_y) %>%
+  mutate(N_cohort = sum(enroll)) %>%
+  mutate(o_share = enroll / N_cohort * 100,
+         N_origin = enroll) %>%
+  select(state, grad_y, o_share, N_origin)
+
+# Instead of IPEDS, try defining origin shares with the full Commencement records
+
+# Read in full Commencement records
+comm <- read.csv(paste0(pathHome, 'data/all_alabama_data.csv'))
+
+# Clean up states of origin; exclude international students
+comm <- comm %>%
+  mutate(originState = gsub(' ', '', Origin.State)) %>%
+  # State will be NA for origins outside the US
+  left_join(states) %>%
+  # Filter to US origins for now
+  filter(!is.na(state)) %>%
+  rename(grad_y = Year)
+
+# Get origin-state shares
+shares <- comm %>%
   group_by(grad_y) %>%
   mutate(N_cohort = n()) %>%
   group_by(grad_y, state) %>%
-  summarize(o_share = n() / mean(N_cohort),
-            N_origin = n())
+  summarize(o_share = n() / mean(N_cohort) * 100,
+            N_origin = n()) %>%
+  select(state, grad_y, o_share, N_origin)
 
 # Add in destination shares
 shares <- dest %>%
@@ -52,10 +83,10 @@ shares <- dest %>%
   group_by(grad_y, state) %>%
   summarize(d_share = n() / mean(N_cohort),
             N_dest = n()) %>%
+  # Attach on full Commencement origin shares
   full_join(shares) %>%
   # Impute zeroes
-  # Multiple origin share by 100
-  mutate(o_share = if_else(is.na(o_share), 0, o_share) * 100,
+  mutate(o_share = if_else(is.na(o_share), 0, o_share),
          d_share = if_else(is.na(d_share), 0, d_share)) %>%
   # Remove zero-share destinations (can't take log)
   filter(d_share > 0) %>%
@@ -122,26 +153,60 @@ share_ins <- share_ins %>%
   # Get difference in log shares (relative to outside good)
   mutate(diff_log_d_share = log_d_share - log_al_share)
 
+# Attach ACS income data --------------------------------------------------------
+
+# Excerpting Crossan's code to attach ACS data to Commencement records at town-level
+
+# Get linked Commencement records
+alabama_data <- origin %>%
+  mutate(town = trimws(tolower(gsub(",.*", "", originTown))),
+         state = gsub(' ', '', tolower(originState)))
+
+# Read ACS data
+acs_data <- read.csv(paste0(pathHome, 'data/acs_2018_2022_town_estimates.csv')) %>%
+  mutate(town = tolower(city),
+         state = tolower(state))
+
+# Merge (92.4% of in-state students)
+merge_acs_alabama <- alabama_data %>%
+  left_join(acs_data)
+
+# Get baseline median HH income across in-state UA students in our sample
+median_instate_income <- merge_acs_alabama %>%
+  filter(state == 'al') %>%
+  pull(median_hh_income) %>%
+  median(na.rm = T)
+
+# Split Alabama into high/low-income
+origin_acs <- merge_acs_alabama %>%
+  mutate(state = toupper(state)) %>%
+  select(-originState) %>%
+  rename(originState = state) %>%
+  # State will be NA for origins outside the US
+  left_join(states) %>%
+  # Filter to US origins for now
+  filter(!is.na(state)) %>%
+  mutate(state = if_else(state == 'Alabama', if_else(median_hh_income < median_instate_income, 'AL-poor', 'AL-rich'), state))
+
+# Join origin and destination data
+# Used for conditioning on origin, as well as full conditional logit model
+join_acs <- dest %>%
+  select(-c('first_name', 'last_name', 'grad_y', 'fullname', 'field', 'user_location')) %>%
+  # Get destination state
+  rename(d_state = state) %>%
+  # Only keep those showing up in both
+  inner_join(origin_acs) %>%
+  # Get origin state
+  rename(o_state = state) %>%
+  filter(grad_y < 2024)
+
 # Sample descriptives -----------------------------------------------------------
 
-# Compare Commencement origin shares to IPEDS origin shares
-
-# Bring in IPEDS shares (along with selectivity IV)
-iv <- readRDS(paste0(pathHome, 'data/selectivity_iv.rds')) %>%
-  left_join(rename(states, STABBR = originState)) %>%
-  # Translate year of enrollment to likely graduation year for that cohort
-  mutate(grad_y = y + 4)
-
-# Get IPEDS origin shares
-ipeds_shares <- iv %>%
-  group_by(grad_y) %>%
-  mutate(N_cohort = sum(enroll)) %>%
-  mutate(o_share_ipeds = enroll / N_cohort * 100) %>%
-  select(state, grad_y, o_share_ipeds)
-
 # Attach to shares dataframe
-shares <- shares %>%
-  left_join(ipeds_shares)
+shares <- ipeds_shares %>%
+  rename(o_share_ipeds = o_share,
+         N_origin_ipeds = N_origin) %>%
+  right_join(shares)
 
 # Plot
 shares %>%
@@ -224,7 +289,7 @@ felm(diff_log_d_share ~ o_share | factor(d_state) + factor(grad_y) | 0 | d_state
 
 # Compute marginal effect of a 1pp increase in out-of-state share
 # Use effect from linear-trend OLS specification
-gamma <- 0.086
+gamma <- 0.104
 # Get overall choice probabilities
 s <- join %>%
   # In-state students only
@@ -290,10 +355,18 @@ felm(diff_log_d_share ~ 0 | factor(state) | (o_share ~ adm_rate) | state, data =
 
 # Conditioning on in-state students
 # First stage
-felm(o_share ~ adm_rate + grad_y | factor(d_state) | 0 | d_state, data = share_ins) %>%
+felm(o_share ~ adm_rate | factor(d_state) | 0 | d_state, data = share_ins) %>%
   summary(robust = T)
 # IV
 felm(diff_log_d_share ~ 0 | factor(d_state) | (o_share ~ adm_rate) | d_state, data = share_ins) %>%
+  summary(robust = T)
+
+# Conditioning on in-state students
+# First stage, with linear trends
+felm(o_share ~ adm_rate  + grad_y | factor(d_state) | 0 | d_state, data = share_ins) %>%
+  summary(robust = T)
+# IV, with linear trends
+felm(diff_log_d_share ~ grad_y | factor(d_state) | (o_share ~ adm_rate) | d_state, data = share_ins) %>%
   summary(robust = T)
 
 # Save to Stata for weak IV tests
@@ -325,14 +398,51 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
   mutate(home_state_oos = home_state * oos,
          home_state_ins = home_state * !oos,
          o_share_oos = o_share * oos,
-         o_share_ins = o_share * !oos,
-         o_share_oos = o_share * oos,
          o_share_ins = o_share * !oos) %>%
   # Get grad_y interacted with Alabama (for a trend in Alabama's mean utility)
   mutate(t_AL = (grad_y - 2006) * (alternative == 'Alabama')) %>%
   # Interact this with OOS
   mutate(t_AL_oos = t_AL * oos,
          t_AL_ins = t_AL * !oos) %>%
+  # Arrange dataframe
+  arrange(user_id, alternative)
+
+# For ACS-linked version splitting Alabama by income
+join_bal_acs <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(join$d_state))),
+                           alternative = rep(unique(join$d_state), each = length(unique(join$user_id)))) %>%
+  left_join(join_acs) %>%
+  # Remove 2024
+  filter(grad_y < 2024) %>%
+  # Restrict to necessary variables
+  select(user_id, alternative, o_state, d_state, grad_y) %>%
+  # Generate indicator for whether the destination is your home state
+  mutate(home_state = if_else(o_state %in% c('AL-poor', 'AL-rich'), alternative == 'Alabama', o_state == alternative),
+         # Generate choice indicator
+         choice = d_state == alternative,
+         # Generate out-of-state indicator
+         oos = !(o_state %in% c('AL-poor', 'AL-rich'))) %>%
+  # Join on origin-share data
+  left_join(rename(shares, alternative = state)) %>%
+  # Impute zero origin shares where missing
+  mutate(o_share = if_else(is.na(o_share), 0, o_share)) %>%
+  # Fix the Alabama origin share to zero
+  mutate(o_share = if_else(alternative == 'Alabama', 0, o_share)) %>%
+  # Manually generate interactions with OOS indicator
+  mutate(home_state_oos = home_state * oos,
+         home_state_ins = home_state * !oos,
+         home_state_ins_poor = home_state * (o_state == 'AL-poor'),
+         home_state_ins_rich = home_state * (o_state == 'AL-rich'),
+         o_share_oos = o_share * oos,
+         o_share_ins = o_share * !oos,
+         o_share_ins_poor = o_share * (o_state == 'AL-poor'),
+         o_share_ins_rich = o_share * (o_state == 'AL-rich')) %>%
+  # Get grad_y interacted with Alabama (for a trend in Alabama's mean utility)
+  mutate(t_AL = (grad_y - 2006) * (alternative == 'Alabama')) %>%
+  # Interact this with OOS
+  mutate(t_AL_oos = t_AL * oos,
+         t_AL_ins = t_AL * !oos,
+         t_AL_ins_poor = t_AL * (o_state == 'AL-poor'),
+         t_AL_ins_rich = t_AL * (o_state == 'AL-rich')) %>%
   # Arrange dataframe
   arrange(user_id, alternative)
 
@@ -351,15 +461,20 @@ mod3 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_
 # Multinomial logit, heterogeneity and cohort effects on Alabama utilities
 mod4 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins)))
 
-# Multinomial logit, heterogeneity and trends, with a RC on home-state preference
-mod5 <- mlogit(choice ~ home_state + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(home_state = as.numeric(home_state)), rpar = c(home_state = 'n'))
+# Now split in-state students by rich/poor
+
+# Multinomial logit, heterogeneity and trends in Alabama utilities
+mod3het <- mlogit(choice ~ home_state_oos + home_state_ins_poor + home_state_ins_rich + o_share_oos + o_share_ins_poor + o_share_ins_rich + t_AL_oos + t_AL_ins_poor + t_AL_ins_rich, data = join_bal_acs)
+
+# Multinomial logit, heterogeneity and cohort effects on Alabama utilities
+mod4het <- mlogit(choice ~ home_state_oos + home_state_ins_poor + home_state_ins_rich + o_share_oos + o_share_ins_poor + o_share_ins_rich + t_AL_oos + t_AL_ins_poor + t_AL_ins_rich, data = join_bal_acs %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins_poor = factor(t_AL_ins_poor), t_AL_ins_rich = factor(t_AL_ins_rich)))
 
 # Get estimates
 # Need to figure out robust/clustered SEs
 summary(mod4)
 
 # Output table
-stargazer(mod0, mod1, mod2, mod3, mod4, omit = c('Intercept'))
+stargazer(mod0, mod1, mod2, mod3, omit = c('Intercept'))
 
 # Get marginal effect of a 1pp increase in the out-of-state share
 # Get weights
@@ -374,6 +489,10 @@ me1 <- (weights %*% effects(mod1, covariate = 'o_share')['Alabama', -1]) / sum(w
 me2 <- (weights %*% effects(mod2, covariate = 'o_share_ins')['Alabama', -1]) / sum(weights)
 me3 <- (weights %*% effects(mod3, covariate = 'o_share_ins')['Alabama', -1]) / sum(weights)
 me4 <- (weights %*% effects(mod4, covariate = 'o_share_ins')['Alabama', -1]) / sum(weights)
+me3poor <- (weights %*% effects(mod3het, covariate = 'o_share_ins_poor')['Alabama', -1]) / sum(weights)
+me3rich <- (weights %*% effects(mod3het, covariate = 'o_share_ins_rich')['Alabama', -1]) / sum(weights)
+me4poor <- (weights %*% effects(mod4het, covariate = 'o_share_ins_poor')['Alabama', -1]) / sum(weights)
+me4rich <- (weights %*% effects(mod4het, covariate = 'o_share_ins_rich')['Alabama', -1]) / sum(weights)
 # This formula is different if I don't fix the Alabama origin share to zero -- then
 # I need to subtract off the marginal effect of raising the Alabama origin share on
 # the probability of remaining in Alabama.
