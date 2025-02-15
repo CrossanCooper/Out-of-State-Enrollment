@@ -23,6 +23,7 @@ library(readr)
 library(ggpubr)
 library(estimatr)
 library(tidycensus)
+library(mlogit)
 
 # Paths -------------------------------------------------------------------------
 
