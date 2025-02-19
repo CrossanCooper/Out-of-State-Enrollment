@@ -320,12 +320,12 @@ shares <- comm %>%
   group_by(Name, Origin.Town, Year) %>%
   # Filter to a unique metro area arbitrarily
   filter(row_number() == 1) %>%
-  # First get the cohort size before filtering out missing metros
+  # Now remove missing Revelio metros before defining cohort size
+  filter(!is.na(rl_metro_area)) %>%
+  # Get the cohort size of observed students
   rename(grad_y = Year) %>%
   group_by(grad_y) %>%
   mutate(N_cohort = n()) %>%
-  # Now remove missing Revelio metros
-  filter(!is.na(rl_metro_area)) %>%
   # And now get the origin shares
   group_by(grad_y, rl_metro_area, state) %>%
   summarize(o_share = n() / mean(N_cohort) * 100,
@@ -339,6 +339,21 @@ shares <- shares %>%
   mutate(o_share = sum(o_share),
          N_origin = sum(N_origin)) %>%
   filter(row_number() == 1)
+
+# Fix which state they correspond to
+# Choosing the state that the city resides in
+shares <- shares %>%
+  mutate(state = case_when(rl_metro_area == 'cincinnati metropolitan area' ~ 'OH',
+                           rl_metro_area == 'memphis metropolitan area' ~ 'TN',
+                           rl_metro_area == 'philadelphia metropolitan area' ~ 'PA',
+                           rl_metro_area == 'washington metropolitan area' ~ 'DC',
+                           rl_metro_area == 'new york city metropolitan area' ~ 'NY',
+                           .default = state))
+
+# For each metro, also get the share coming from other metros in the same state
+shares <- shares %>%
+  group_by(grad_y, state) %>%
+  mutate(o_share_other = sum(o_share) - o_share)
 
 # Consolidate the couple cases of multiple Revelio metros into one as with origins
 dest <- dest %>%
@@ -437,7 +452,9 @@ msa_state <- msa_state %>%
   filter(is.na(state) | (d_state == state)) %>%
   select(d_msa, d_state) %>%
   rename(alternative = d_msa,
-         alternative_state = d_state)
+         alternative_state = d_state) %>%
+  # Also get metro indicator
+  mutate(alternative_metro = !(str_detect(alternative, 'nonmetro')))
 
 # Get individual/product-level dataframe
 join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(join$d_msa))),
@@ -448,7 +465,7 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
   # Remove 2024
   filter(grad_y < 2024) %>%
   # Restrict to necessary variables
-  select(user_id, alternative, alternative_state, o_state, d_msa, grad_y) %>%
+  select(user_id, alternative, alternative_state, alternative_metro, o_state, d_msa, grad_y) %>%
   # Generate indicator for whether the destination is your home state
   mutate(home_state = o_state == alternative_state,
          # Generate choice indicator
@@ -458,14 +475,18 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
   # Join on origin-share data
   left_join(rename(shares, alternative = rl_metro_area)) %>%
   # Impute zero origin shares where missing
-  mutate(o_share = if_else(is.na(o_share), 0, o_share)) %>%
+  mutate(o_share = if_else(is.na(o_share), 0, o_share),
+         o_share_other = if_else(is.na(o_share_other), 0, o_share_other)) %>%
   # Fix the Alabama origin shares to zero
-  mutate(o_share = if_else(alternative_state == 'Alabama', 0, o_share)) %>%
+  mutate(o_share = if_else(alternative_state == 'Alabama', 0, o_share),
+         o_share_other = if_else(alternative_state == 'Alabama', 0, o_share_other)) %>%
   # Manually generate interactions with OOS indicator
   mutate(home_state_oos = home_state * oos,
          home_state_ins = home_state * !oos,
          o_share_oos = o_share * oos,
-         o_share_ins = o_share * !oos) %>%
+         o_share_ins = o_share * !oos,
+         o_share_other_oos = o_share_other * oos,
+         o_share_other_ins = o_share_other * !oos) %>%
   # Get grad_y interacted with Alabama (for a trend in Alabama's mean utility)
   mutate(t_AL = (grad_y - 2006) * (alternative_state == 'Alabama')) %>%
   # Interact this with OOS
@@ -475,32 +496,44 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
   arrange(user_id, alternative)
 
 # Multinomial logit, no heterogeneity by in-state
-mod0 <- mlogit(choice ~ home_state + o_share, data = join_bal)
+mod0 <- mlogit(choice ~ home_state + o_share, data = join_bal, heterosc = T)
 
 # Multinomial logit, no heterogeneity by in-state, with a trend
 mod1 <- mlogit(choice ~ home_state + o_share + t_AL, data = join_bal)
 
+# Including share of other MSAs in the state
+mod2 <- mlogit(choice ~ home_state + o_share + o_share_other + t_AL, data = join_bal)
+
 # Multinomial logit, heterogeneity but no trend in Alabama utility
-mod2 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins, data = join_bal)
+mod3 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins, data = join_bal)
+
+# Multinomial logit, heterogeneity but no trend in Alabama utility
+mod4 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + o_share_other_oos + o_share_other_ins, data = join_bal)
 
 # Multinomial logit, heterogeneity and trends in Alabama utilities
-mod3 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal)
+mod5 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal)
+
+# Including share of other MSAs in the state
+mod6 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + o_share_other_oos + o_share_other_ins + t_AL_oos + t_AL_ins, data = join_bal)
 
 # Multinomial logit, heterogeneity and cohort effects on Alabama utilities
-mod4 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins)))
+mod7 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins)))
 
-# Get marginal effect of a 1pp increase in the out-of-state share
-# Get weights
-weights <- shares %>%
-  group_by(rl_metro_area) %>%
-  filter(state != 'AL') %>%
-  summarize(N = sum(N_origin))
-# Get average marginal effects
-effects0 <- effects(mod0, covariate = 'o_share')
-effects1 <- effects(mod1, covariate = 'o_share')
-effects2 <- effects(mod2, covariate = 'o_share_ins')
-effects3 <- effects(mod3, covariate = 'o_share_ins')
-effects4 <- effects(mod4, covariate = 'o_share_ins')
+# Including share of other MSAs in the state
+mod8 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + o_share_other_oos + o_share_other_ins + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins)))
+
+# Get robust SEs
+se4 <- sqrt(diag(vcovCL(mod4, type = 'HC1')))
+se6 <- sqrt(diag(vcovCL(mod6, type = 'HC1')))
+se8 <- sqrt(diag(vcovCL(mod8, type = 'HC1')))
+# Can also cluster by origin state if we wish
+# This isn't working at the moment
+sqrt(diag(vcovCL(mod4, cluster = ~o_state, type = 'HC1')))
+
+# Print regression table
+stargazer(mod4, mod6, mod8, omit = 'Intercept', se = list(se4, se6, se8))
+
+# Get AMEs ----------------------------------------------------------------------
 
 # Get sum of effects on the 4 Alabama MSAs from raising the OOS shares of all non-Alabama
 # metros in proportion to their overall OOS shares
@@ -508,8 +541,125 @@ AL_metros <- shares %>%
   filter(state == 'AL') %>%
   pull(rl_metro_area) %>%
   unique()
-me0 <- (weights$N %*% colSums(effects0[AL_metros, weights$rl_metro_area])) / sum(weights$N)
-me1 <- (weights$N %*% colSums(effects1[AL_metros, weights$rl_metro_area])) / sum(weights$N)
-me2 <- (weights$N %*% colSums(effects2[AL_metros, weights$rl_metro_area])) / sum(weights$N)
-me3 <- (weights$N %*% colSums(effects3[AL_metros, weights$rl_metro_area])) / sum(weights$N)
-me4 <- (weights$N %*% colSums(effects4[AL_metros, weights$rl_metro_area])) / sum(weights$N)
+
+# Get weights on each state (their overall share of OOS students at UA over the whole period)
+weights <- shares %>%
+  rename(originState = state) %>%
+  left_join(states) %>%
+  rename(state_old = state,
+         d_msa = rl_metro_area) %>%
+  # Get the same state as above for each MSA with multiple states
+  left_join(mult_msa) %>%
+  mutate(state = if_else(!is.na(state), state, state_old)) %>%
+  # Manually fix Omaha and Virginia Beach
+  mutate(state = case_when(d_msa == 'omaha metropolitan area' ~ 'Nebraska', d_msa == 'virginia beach metropolitan area' ~ 'Virginia', .default = state)) %>%
+  # Convert names back
+  rename(rl_metro_area = d_msa) %>%
+  group_by(rl_metro_area, state) %>%
+  filter(state != 'Alabama') %>%
+  summarize(N = sum(N_origin))
+
+# Need to add in the pull effect to other MSAs in the state for models 2, 4, 6, 8
+# For each non-AL MSA, get the portion of the 1pp increase in OOS share accounted for
+# by the other MSAs in their state (a 1pp increase in OOS share is a >1pp total increase in
+# this variable)
+weights <- weights %>%
+  ungroup() %>%
+  # Get actual fraction of the 1pp increase in OOS share in each MSA
+  mutate(msa_pp = N / sum(N)) %>%
+  # Get pp increase in other MSAs' share
+  group_by(state) %>%
+  mutate(other_msa_pp = sum(msa_pp) - msa_pp)
+
+# Get dataframe for prediction
+# In-state student predictions are identical up to cohorts, so just get one per cohort
+# and then weight according to cohort sizes for ease of computation
+pred <- join %>%
+  # Filter to in-state students
+  filter(o_state == 'Alabama') %>%
+  # Get each cohort's weight for average of marginal effects
+  group_by(grad_y) %>%
+  mutate(N = n()) %>%
+  ungroup() %>%
+  mutate(pred_weight = N / n()) %>%
+  # Get a single representative from each cohort
+  group_by(grad_y) %>%
+  filter(row_number() == 1) %>%
+  select(user_id, grad_y, pred_weight)
+
+# Get dataframe for prediction (works for models without cohort FE)
+pred_bal <- join_bal %>%
+  filter(user_id %in% pred$user_id)
+
+# Function giving average marginal effect of 1pp increase in OOS share in terms of
+# model coefficients; x can be 'o_share_ins' or 'o_share_other_ins'
+ame <- function(coefs, x, mod) {
+  
+  # Replace model coefficients with coefs
+  mod$coefficients <- coefs
+  
+  # Compute AME
+  pred$pred_weight %*% t(unlist(weights[, if_else(x == 'o_share_ins', 'msa_pp', 'other_msa_pp')]) %*% t(-mod$coefficients[x] * rowSums(predict(mod, pred_bal)[, AL_metros]) * predict(mod, pred_bal)[, weights$rl_metro_area]))
+  
+}
+
+# Point estimate
+ame(mod4$coefficients, x = 'o_share_ins', mod = mod4)
+ame(mod4$coefficients, x = 'o_share_other_ins', mod = mod4)
+
+# Get Jacobian
+jac4 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod4)}, mod4$coefficients)
+jac4_other <- jacobian(function(coefs) {ame(coefs, 'o_share_other_ins', mod = mod4)}, mod4$coefficients)
+
+# Standard error via Delta method
+ame4_se <- sqrt(jac4 %*% vcovCL(mod4, type = 'HC1') %*% t(jac4))
+ame4_se_other <- sqrt(jac4_other %*% vcovCL(mod4, type = 'HC1') %*% t(jac4_other))
+
+# Point estimate
+ame(mod6$coefficients, x = 'o_share_ins', mod = mod6)
+ame(mod6$coefficients, x = 'o_share_other_ins', mod = mod6)
+
+# Get Jacobian
+jac6 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod6)}, mod6$coefficients)
+jac6_other <- jacobian(function(coefs) {ame(coefs, 'o_share_other_ins', mod = mod6)}, mod6$coefficients)
+
+# Standard error via Delta method
+ame6_se <- sqrt(jac6 %*% vcovCL(mod6, type = 'HC1') %*% t(jac6))
+ame6_se_other <- sqrt(jac6_other %*% vcovCL(mod6, type = 'HC1') %*% t(jac6_other))
+
+# Get dataframe for prediction
+# This is for the model with non-parametric trends
+pred_bal <- join_bal %>%
+  mutate(t_AL_oos = factor(t_AL_oos),
+         t_AL_ins = factor(t_AL_ins)) %>%
+  filter(user_id %in% pred$user_id)
+
+# Function giving average marginal effect of 1pp increase in OOS share in terms of
+# model coefficients; x can be 'o_share_ins' or 'o_share_other_ins'
+ame <- function(coefs, x, mod) {
+  
+  # Replace its coefficients with coefs
+  mod$coefficients <- coefs
+  
+  # Compute AME
+  pred$pred_weight %*% t(unlist(weights[, if_else(x == 'o_share_ins', 'msa_pp', 'other_msa_pp')]) %*% t(-mod$coefficients[x] * rowSums(predict(mod, pred_bal)[, AL_metros]) * predict(mod, pred_bal)[, weights$rl_metro_area]))
+  
+}
+
+# Point estimate
+ame(mod8$coefficients, x = 'o_share_ins', mod = mod8)
+ame(mod8$coefficients, x = 'o_share_other_ins', mod = mod8)
+
+# This takes ages to run -- are all coefficients needed in the AME function?
+# I could exclude the ones that apply to OOS students, but the main dimensionality
+# is the fixed effects, which we need.
+# Alternatively, I could try finding the analytic gradient...
+jac8 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod8)}, mod8$coefficients)
+jac8_other <- jacobian(function(coefs) {ame(coefs, 'o_share_other_ins', mod = mod8)}, mod8$coefficients)
+
+# Standard error via Delta method
+ame8_se <- sqrt(jac8 %*% vcovCL(mod8, type = 'HC1') %*% t(jac8))
+ame8_se_other <- sqrt(jac8_other %*% vcovCL(mod8, type = 'HC1') %*% t(jac8_other))
+
+# Save panel for use in Stata
+write_dta(join_bal, paste0(pathHome, 'data/join_bal_msa.dta'))
