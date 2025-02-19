@@ -469,33 +469,114 @@ mod3het <- mlogit(choice ~ home_state_oos + home_state_ins_poor + home_state_ins
 # Multinomial logit, heterogeneity and cohort effects on Alabama utilities
 mod4het <- mlogit(choice ~ home_state_oos + home_state_ins_poor + home_state_ins_rich + o_share_oos + o_share_ins_poor + o_share_ins_rich + t_AL_oos + t_AL_ins_poor + t_AL_ins_rich, data = join_bal_acs %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins_poor = factor(t_AL_ins_poor), t_AL_ins_rich = factor(t_AL_ins_rich)))
 
-# Get estimates
-# Need to figure out robust/clustered SEs
-summary(mod4)
+# Get robust SEs
+se0 <- sqrt(diag(vcovCL(mod0, type = 'HC1')))
+se1 <- sqrt(diag(vcovCL(mod1, type = 'HC1')))
+se2 <- sqrt(diag(vcovCL(mod2, type = 'HC1')))
+se3 <- sqrt(diag(vcovCL(mod3, type = 'HC1')))
+se4 <- sqrt(diag(vcovCL(mod4, type = 'HC1')))
+# Can also cluster by origin state if we wish
+# This isn't working at the moment
+sqrt(diag(vcovCL(mod0, cluster = ~o_state, type = 'HC1')))
 
 # Output table
-stargazer(mod0, mod1, mod2, mod3, omit = c('Intercept'))
+stargazer(mod0, mod1, mod2, mod3, mod4, omit = c('Intercept'), se = list(se0, se1, se2, se3, se4))
 
-# Get marginal effect of a 1pp increase in the out-of-state share
-# Get weights
+# Get AMEs ----------------------------------------------------------------------
+
+# Models 0 and 1 don't interact coefficients with in-state/out-of-state
+
+# Get average marginal effect of a 1pp increase in the out-of-state share for in-state students
+
+# Get each state's portion of the 1pp increase
 weights <- join %>%
-  group_by(o_state) %>%
-  summarize(N = n()) %>%
   filter(o_state != 'Alabama') %>%
-  pull(N)
-# Get average marginal effect
-me0 <- (weights %*% effects(mod0, covariate = 'o_share')['Alabama', -1]) / sum(weights)
-me1 <- (weights %*% effects(mod1, covariate = 'o_share')['Alabama', -1]) / sum(weights)
-me2 <- (weights %*% effects(mod2, covariate = 'o_share_ins')['Alabama', -1]) / sum(weights)
-me3 <- (weights %*% effects(mod3, covariate = 'o_share_ins')['Alabama', -1]) / sum(weights)
-me4 <- (weights %*% effects(mod4, covariate = 'o_share_ins')['Alabama', -1]) / sum(weights)
-me3poor <- (weights %*% effects(mod3het, covariate = 'o_share_ins_poor')['Alabama', -1]) / sum(weights)
-me3rich <- (weights %*% effects(mod3het, covariate = 'o_share_ins_rich')['Alabama', -1]) / sum(weights)
-me4poor <- (weights %*% effects(mod4het, covariate = 'o_share_ins_poor')['Alabama', -1]) / sum(weights)
-me4rich <- (weights %*% effects(mod4het, covariate = 'o_share_ins_rich')['Alabama', -1]) / sum(weights)
-# This formula is different if I don't fix the Alabama origin share to zero -- then
-# I need to subtract off the marginal effect of raising the Alabama origin share on
-# the probability of remaining in Alabama.
+  # Get total number of OOS students
+  ungroup() %>%
+  mutate(N = n()) %>%
+  # Get each state's overall OOS share over the whole period
+  group_by(o_state) %>%
+  summarize(pct = n() / mean(N))
+
+# Get dataframe for prediction
+# In-state student predictions are identical up to cohorts, so just get one per cohort
+# and then weight according to cohort sizes for ease of computation
+pred <- join %>%
+  # Filter to in-state students
+  filter(o_state == 'Alabama') %>%
+  # Get each cohort's weight for average of marginal effects
+  group_by(grad_y) %>%
+  mutate(N = n()) %>%
+  ungroup() %>%
+  mutate(pred_weight = N / n()) %>%
+  # Get a single representative from each cohort
+  group_by(grad_y) %>%
+  filter(row_number() == 1) %>%
+  select(user_id, grad_y, pred_weight)
+
+# Get dataframe for prediction (works for models without cohort FE)
+pred_bal <- join_bal %>%
+  filter(user_id %in% pred$user_id)
+
+# Function giving average marginal effect of 1pp increase in OOS share in terms of
+# model coefficients
+ame <- function(coefs, x, mod) {
+  
+  # Replace model coefficients with coefs
+  mod$coefficients <- coefs
+  
+  # Compute AME (explicit formula from derivative of Pr(j) wrt d_{k})
+  pred$pred_weight %*% t(weights$pct %*% t(-mod$coefficients[x] * predict(mod, pred_bal)[, 'Alabama'] * predict(mod, pred_bal)[, weights$o_state]))
+  
+}
+
+# Point estimate
+ame(mod0$coefficients, x = 'o_share', mod = mod0)
+ame(mod1$coefficients, x = 'o_share', mod = mod1)
+ame(mod2$coefficients, x = 'o_share_ins', mod = mod2)
+ame(mod3$coefficients, x = 'o_share_ins', mod = mod3)
+
+# Get Jacobians
+jac0 <- jacobian(function(coefs) {ame(coefs, 'o_share', mod = mod0)}, mod0$coefficients)
+jac1 <- jacobian(function(coefs) {ame(coefs, 'o_share', mod = mod1)}, mod1$coefficients)
+jac2 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod2)}, mod2$coefficients)
+jac3 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod3)}, mod3$coefficients)
+
+# Standard error via Delta method
+ame0_se <- sqrt(jac0 %*% vcovCL(mod0, type = 'HC1') %*% t(jac0))
+ame1_se <- sqrt(jac1 %*% vcovCL(mod1, type = 'HC1') %*% t(jac1))
+ame2_se <- sqrt(jac2 %*% vcovCL(mod2, type = 'HC1') %*% t(jac2))
+ame3_se <- sqrt(jac3 %*% vcovCL(mod3, type = 'HC1') %*% t(jac3))
+
+# Get dataframe for prediction
+# This is for the model with non-parametric trends
+pred_bal <- join_bal %>%
+  mutate(t_AL_oos = factor(t_AL_oos),
+         t_AL_ins = factor(t_AL_ins)) %>%
+  filter(user_id %in% pred$user_id)
+
+# Function giving average marginal effect of 1pp increase in OOS share in terms of
+# model coefficients
+ame <- function(coefs, x, mod) {
+  
+  # Replace model coefficients with coefs
+  mod$coefficients <- coefs
+  
+  # Compute AME (explicit formula from derivative of Pr(j) wrt d_{k})
+  pred$pred_weight %*% t(weights$pct %*% t(-mod$coefficients[x] * predict(mod, pred_bal)[, 'Alabama'] * predict(mod, pred_bal)[, weights$o_state]))
+  
+}
+
+# Point estimate
+ame(mod4$coefficients, x = 'o_share_ins', mod = mod4)
+
+# Get Jacobian
+jac4 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod4)}, mod4$coefficients)
+
+# Standard error via Delta method
+ame4_se <- sqrt(jac4 %*% vcovCL(mod4, type = 'HC1') %*% t(jac4))
+
+# Counterfactuals ---------------------------------------------------------------
 
 # Now simulate probability of staying in Alabama (among in-state students) assuming
 # UA's origin-state composition had (1) remained at 2006 levels vs. (2) continued
@@ -523,6 +604,7 @@ t_AL_ins <- join_bal %>%
   pull(t_AL_ins)
 
 # Form datasets for prediction
+# These condition on in-state (home_state)
 data_static <- data.frame(alternative = rep(join_bal$alternative[1:51], 18),
                           home_state_oos = 0,
                           home_state_ins = rep(c(1, rep(0, 50)), 18),
@@ -580,33 +662,7 @@ data_updating <- data_updating %>%
          t_AL_ins = factor(t_AL_ins)) %>%
   filter(!is.na(alternative))
 
-# Get new model predictions
-prob_AL_static <- predict(mod4, data_static)[, 1]
-prob_AL_updating <- predict(mod4, data_updating)[, 1]
-
-# Plot
-# Note that here the simulated model exactly fits the data
-data.frame(t = rep(2006:2023, 2),
-           world = c(rep('Fixed OOS share (model)', 18), rep('Actual OOS share (model = data)', 18)),
-           prob_AL = c(prob_AL_static, prob_AL_updating)) %>%
-  ggplot(aes(x = t, y = prob_AL, col = world)) +
-  geom_line(lwd = 1) +
-  scale_color_manual(values = c('indianred3', 'steelblue3')) +
-  labs(x = 'Graduation year',
-       title = 'Counterfactual estimates for in-state students (year FE)',
-       y = 'Probability of staying in Alabama',
-       col = NULL) +
-  theme_classic() +
-  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
-        legend.position = 'bottom',
-        plot.title = element_text(hjust = 0.5),
-        plot.caption = element_text(hjust = 0))
-ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE.png'), width = 6, height = 5)
-
 # Now compute the cumulative number of in-state UA students pulled from Alabama since 2006
-
-# Using cohort FE model, get difference in probability of staying in Alabama by year
-prob_AL_diff <- prob_AL_static - prob_AL_updating
 
 # Now need # of UA in-state students by year
 # Read in first-year enrollment by state-of-origin panel
@@ -618,13 +674,149 @@ ef <- readRDS(paste0(pathHome, 'data/ef_by_state_panel.rds')) %>%
   filter(grad_y %in% 2006:2023) %>%
   arrange(grad_y)
 
-# Estimated # of in-state students induced to leave Alabama
-effects <- data.frame(grad_y = 2006:2023,
-                      N_leaving = ef$EFRES01 * prob_AL_diff,
-                      cum_leaving = cumsum(ef$EFRES01 * prob_AL_diff))
+# Get cumulative effect on # students pulled out with standard error via Delta method
+# This is for the richest model (model 4 with cohort FE)
+tot_leaving <- function(coefs, mod) {
+  
+  # Replace estimated coefficients
+  mod$coefficients <- coefs
+  
+  # For each year, get probability of staying in Alabama for static and updating counterfactuals
+  prob_AL_static <- predict(mod, data_static)[, 1]
+  prob_AL_updating <- predict(mod, data_updating)[, 1]
+  
+  # Calculating number of students induced to leave from 2006-2023
+  sum(ef$EFRES01 * (prob_AL_static - prob_AL_updating))
+  
+}
 
-# Finally, try replicating the plain-logit share regressions using mlogit
-mod <- mlogit(choice ~ o_share + t_AL, data = join_bal %>% filter(o_state == 'Alabama'))
-summary(mod)
-# Get marginal effect
-me <- (weights %*% effects(mod, covariate = 'o_share')['Alabama', -1]) / sum(weights)
+# Get cumulative number of students leaving
+tot_leaving(mod4$coefficients, mod4)
+
+# Get Jacobian
+jac_tot <- jacobian(function(coefs) {tot_leaving(coefs, mod = mod4)}, mod4$coefficients)
+
+# Get standard error via Delta method
+sqrt(jac_tot %*% vcovCL(mod4, type = 'HC1') %*% t(jac_tot))
+
+# Get predicted effect on probability of leaving for each cohort
+prob_staying <- function(coefs, cf, y) {
+  
+  # Replace estimated coefficients
+  mod4$coefficients <- coefs
+  
+  if (cf == 'no_OOS_growth') {
+    
+    # Get probability of staying in Alabama in year y, under no OOS share growth
+    predict(mod4, data_static[(51*(y - 2006) + 1):(51*(y - 2005)), ])[1]
+    
+  } else {
+    
+    # Get probability of staying in Alabama in year y, under actual OOS share growth
+    predict(mod4, data_updating[(51*(y - 2006) + 1):(51*(y - 2005)), ])[1]
+    
+  }
+  
+}
+
+# Get estimates and standard errors for each year
+years <- 2006:2023
+cf_probs <- data.frame(y = rep(years, 2),
+                       cf = c(rep('no_OOS_growth', length(years)), rep('actual_OOS_growth', length(years))),
+                       estimate = NA,
+                       se = NA)
+
+# Fill in estimates and standard errors for each counterfactual
+for (i in 1:nrow(cf_probs)) {
+  
+  # Get estimate
+  cf_probs$estimate[i] <- prob_staying(mod4$coefficients, cf_probs$cf[i], cf_probs$y[i])
+  
+  # Get Jacobian
+  jac_temp <- jacobian(function(coefs) {prob_staying(coefs, cf = cf_probs$cf[i], y = cf_probs$y[i])}, mod4$coefficients)
+  
+  # Get standard error via Delta method
+  cf_probs$se[i] <- sqrt(jac_temp %*% vcovCL(mod4, type = 'HC1') %*% t(jac_temp))
+  
+  # Tracker
+  print(years[i])
+  
+}
+
+# Plot
+# Note that here the simulated model exactly fits the data
+cf_probs %>%
+  mutate(cf = if_else(cf == 'no_OOS_growth', 'Fixed OOS share', 'Actual OOS share growth')) %>%
+  ggplot(aes(x = y, y = estimate, col = cf, fill = cf)) +
+  geom_line(lwd = 1) +
+  # Add 95% CIs
+  geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, col = NA) +
+  scale_color_manual(values = c('indianred3', 'steelblue3')) +
+  scale_fill_manual(values = c('indianred3', 'steelblue3')) +
+  labs(x = 'Graduation year',
+       title = 'Counterfactual estimates for in-state students',
+       y = 'Probability of staying in Alabama',
+       col = NULL) +
+  guides(fill = 'none') +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE_ribbon.png'), width = 6, height = 5)
+
+# Now get flow exit with error bars
+
+# Get predicted effect on probability of leaving for each cohort
+flow_exit <- function(coefs, y) {
+  
+  # Replace estimated coefficients
+  mod4$coefficients <- coefs
+  
+  # Get probability of staying in Alabama in year y, under no OOS share growth
+  prob_AL_static <- predict(mod4, data_static[(51*(y - 2006) + 1):(51*(y - 2005)), ])[1]
+  # Get probability of staying in Alabama in year y, under actual OOS share growth
+  prob_AL_updating <- predict(mod4, data_updating[(51*(y - 2006) + 1):(51*(y - 2005)), ])[1]
+  
+  # Get number of students induced to leave in this year
+  ef$EFRES01[ef$grad_y == y] * (prob_AL_static - prob_AL_updating)
+  
+}
+
+# Get estimates and standard errors for each year
+exit_over_time <- data.frame(y = years,
+                             estimate = NA,
+                             se = NA)
+
+for (i in 1:length(years)) {
+  
+  # Get estimate
+  exit_over_time$estimate[i] <- flow_exit(mod4$coefficients, exit_over_time$y[i])
+  
+  # Get Jacobian
+  jac_temp <- jacobian(function(coefs) {flow_exit(coefs, y = exit_over_time$y[i])}, mod4$coefficients)
+  
+  # Get standard error via Delta method
+  exit_over_time$se[i] <- sqrt(jac_temp %*% vcovCL(mod4, type = 'HC1') %*% t(jac_temp))
+  
+  # Tracker
+  print(years[i])
+  
+}
+
+# Plot the number of students induced to leave in each cohort
+exit_over_time %>%
+  # Set the CI to zero in the base year, where induced exit is zero by construction
+  ggplot(aes(x = y, y = estimate)) +
+  geom_line(col = 'indianred3', lwd = 1) +
+  geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, fill = 'indianred3') +
+  labs(x = 'Graduation year',
+       title = 'Counterfactual estimates for in-state students',
+       y = 'Flow # induced to leave Alabama',
+       col = NULL) +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+ggsave(paste0(pathFigures, 'analysis_main/flow_exit.png'), width = 6, height = 5)
