@@ -41,6 +41,26 @@ setDT(first_spells_join_dt)
 
 revelio_ua_link_dt <- fread(file.path(getwd(), "data", "linked_commencement_revelio_profile_data.csv"))
 
+## descriptive figure for EEAs
+# bama_dt <- fread(file.path(getwd(), "data", "UA_Fall_Enrollment_Data.csv"))
+# 
+# bama_plot <- ggplot(bama_dt[Year >= 1850], aes(x = Year, y = Enrollment)) +   
+#   geom_area(fill = "#440154FF", alpha = 0.8, color = "black") +   
+#   labs(x = "Year", y = "UA Fall Enrollment") +   
+#   geom_vline(xintercept = 2002, linetype = "dashed", color = "red") +  
+#   annotate("text", x = 2002, y = max(bama_dt$Enrollment) * 0.75, 
+#            label = "Commencement Sample", angle = 90, vjust = -0.5, color = "red") +
+#   theme_bw() + 
+#   removeGridX()
+# 
+# print(bama_plot)
+# 
+# ggsave(file.path(getwd(),"figures","descriptive-figs","bama_enrollment_trends.png"), plot = bama_plot,
+#        width = 8, height = 4.5)
+
+
+
+
 #=====================================================================
 # 2 - produce descriptive analysis
 #=====================================================================

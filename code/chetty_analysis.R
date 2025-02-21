@@ -142,6 +142,9 @@ chetty_plot_1c <- ggplot(dt_summary_oo_apply, aes(x = par_income_lab, y = mean_o
 
 print(chetty_plot_1c)
 
+ggsave(file.path(getwd(),"figures","descriptive-figs","chetty_plot_oostate_app.png"), plot = chetty_plot_1c,
+       width = 8, height = 4.5)
+
 dt_summary_in_apply <- dt_3b[, .(mean_instate = mean(rel_apply_instate, na.rm = T)), by = .(Conference, par_income_lab)]
 
 chetty_plot_1d <- ggplot(dt_summary_in_apply, aes(x = par_income_lab, y = mean_instate, fill = Conference)) +
@@ -154,6 +157,9 @@ chetty_plot_1d <- ggplot(dt_summary_in_apply, aes(x = par_income_lab, y = mean_i
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_1d)
+
+ggsave(file.path(getwd(),"figures","descriptive-figs","chetty_plot_instate_app.png"), plot = chetty_plot_1d,
+       width = 8, height = 4.5)
 
 ### iv. attendance rate plots -- by school in SEC
 

@@ -18,7 +18,7 @@
 # default list of packages and cleaning command
 rm(list=ls())
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse,data.table,ggplot2,skimr,
+pacman::p_load(tidyverse,data.table,ggplot2,skimr,RColorBrewer,
                dplyr,fixest,ggmap,stargazer,sjmisc,maps,
                Hmisc,tseries,DescTools,here,censusapi,RSQLite,
                tidycensus,educationdata,foreach,binsreg,
@@ -168,7 +168,8 @@ major_summary_pooled[, Multiple := InShare/OutShare]
 major_summary_pooled[, ReverseMultiple := OutShare/InShare]
 
 major_summary_long <- melt(
-  data = major_summary,
+  data = major_summary[Year != "2020" & Year != "2021" & 
+                         Year != "2022" & Year != "2023"],
   id.vars        = c("Year", "DegreeGroupFinish"),
   measure.vars   = c("in_state_students", "out_of_state_students"),
   variable.name  = "Residency",
@@ -233,6 +234,14 @@ ggsave(
   height = 8
 )
 
+ggsave(
+  filename = file.path(getwd(),"figures","descriptive-figs","major_facet_wrap_share_wide.png"),
+  plot = major_plot,
+  width = 12,
+  height = 8
+)
+
+
 
 ### ii. honors average participation (maybe miscoded?)
 
@@ -290,6 +299,32 @@ visits_by_state <- merge(visits_by_state, state_xwalk, by = "event_state", all.x
 # Merge to associate `total_visits` with each polygon
 map_visits <- merge(usa_map, visits_by_state, by = "region", all.x = TRUE)
 
+map_visits <- setDT(map_visits)
+
+map_visits[, total_visits := fifelse(is.na(total_visits), 0, total_visits) ]
+
+map_visits[, visits_bin := cut(
+  total_visits,
+  breaks = c(0, 1, 10, 50, 100, 200, 350, 500, Inf),  # bin edges
+  labels = c("0","1–9", "10–49", "50–99", "100–199", "200–349", "350-499","500+"),
+  right  = FALSE  # `[start, end)` intervals
+)]
+
+# 7 reds from light to dark
+red_colors <- brewer.pal(7, "Reds")
+
+# Create a custom color vector with white for the "0" bin,
+# then the 6 red tones for the other levels
+custom_colors <- c("0" = "white",
+                   "1–9" = red_colors[1],
+                   "10–49" = red_colors[2],
+                   "50–99" = red_colors[3],
+                   "100–199" = red_colors[4],
+                   "200–349" = red_colors[5],
+                   "350-499" = red_colors[6],
+                   "500+" = red_colors[7])
+
+
 map_visits <- map_visits[order(map_visits$order), ]
 
 ua_recruiting_dt[, `Event Type` := fcase(
@@ -299,12 +334,12 @@ ua_recruiting_dt[, `Event Type` := fcase(
 )]
 
 # 2. Plot the map and the points
-ggplot() +
+recruiting_map <- ggplot() +
   # a) US state polygons
   geom_polygon(
     data = map_visits,
-    aes(x = long, y = lat, group = group, fill = total_visits),
-    color = "gray70", 
+    aes(x = long, y = lat, group = group, fill = visits_bin),
+    color = "gray70"
     # fill = "white",
     # #color = "gray50"
   ) +
@@ -320,18 +355,20 @@ ggplot() +
     x = "Longitude",
     y = "Latitude"
   ) +
-  scale_fill_brewer(
-    name     = "Total Visits",
-    palette = 'Reds',
-    na.value = "white"
-  ) +
+  scale_fill_manual(
+    name   = "Total Visits",
+    values = custom_colors
+  )+
   theme_bw() + removeGrid() + 
   theme(
-    legend.position = "bottom",
-    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
-    text = element_text(size = 12)) 
+    # Remove or reduce the plot margin
+    plot.margin = margin(t = 0, r = 5, b = 0, l = 5, unit = "pt")
+  )
 
+plot(recruiting_map)
 
+ggsave(file.path(getwd(),"figures","descriptive-figs","state_recruiting.png"), plot = recruiting_map,
+       width = 8, height = 6)
 
 ## (a) check descriptives
 
