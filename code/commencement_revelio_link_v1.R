@@ -331,7 +331,7 @@ for_area_plot_dt[, Origin := factor(Origin, levels = c( "International","Out-of-
 
 area_plot <- ggplot(for_area_plot_dt[Year <= 2023], aes(x = Year, y = RelativeTo2006, group = Origin, fill = Origin)) + 
   geom_area(alpha = 0.8) + theme_bw() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
-  ylab("# of Degree Recipients Relative to 2006") + xlim(2006,2023) + 
+  ylab("Degree Recipients (Relative to 2006)") + xlim(2006,2023) + 
   theme(
     legend.position = "bottom",
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),

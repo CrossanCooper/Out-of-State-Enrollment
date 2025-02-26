@@ -276,6 +276,8 @@ recruiting_scale_dt <- hs_recruiting_dt[,.N,.(InState_Mean, univ_id)]
 
 uga_hs_dt <- hs_recruiting_dt[univ_id == 139959]
 
+uga_hs_dt[,.N,.(InState)]
+
 ua_recruiting_dt <- recruiting_dt[univ_id == 100751]
 
 # 1. Get the polygon data for the US
@@ -906,6 +908,24 @@ beta_results_dt <- rbindlist(results)
 
 # Print results
 print(beta_results_dt)
+
+## for better summary table 
+
+merged_oos_dt[, Growth07_21 :=  ((UACount_2021 / UACount_2007) - 1)/14]
+merged_oos_dt[, Growth12_21 :=  ((UACount_2021 / UACount_2012) - 1)/9]
+merged_oos_dt[, Growth20_21 :=  (UACount_2021 / UACount_2020) - 1]
+
+merged_oos_dt[, Predicted_UACount_22_21 := (1 + Growth20_21) * UACount_2021]
+merged_oos_dt[, Predicted_UACount_22_12:= (1 + Growth12_21) * UACount_2021]
+merged_oos_dt[, Predicted_UACount_22_07:= (1 + Growth07_21) * UACount_2021]
+
+feols(UACount_2022 ~ VisitCount + Predicted_UACount_22_21, data = merged_oos_dt, vcov = ~OriginState)
+feols(UACount_2022 ~ VisitFlag + Predicted_UACount_22_21, data = merged_oos_dt, vcov = ~OriginState)
+feols(UACount_2022 ~ VisitCount + Predicted_UACount_22_12, data = merged_oos_dt, vcov = ~OriginState)
+feols(UACount_2022 ~ VisitFlag + Predicted_UACount_22_12, data = merged_oos_dt, vcov = ~OriginState)
+feols(UACount_2022 ~ VisitCount + Predicted_UACount_22_07, data = merged_oos_dt, vcov = ~OriginState)
+feols(UACount_2022 ~ VisitFlag + Predicted_UACount_22_07, data = merged_oos_dt, vcov = ~OriginState)
+
 
 #=====================================================================
 # 5 - read and edit the linked commencement data
