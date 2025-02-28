@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-12-25
+## Last Modified: 2-27-25
 
 ## file use: explore cleaned UA data
 #
@@ -260,11 +260,116 @@ honors_summary[, `:=`(
 # 3 - read and explore the 2017 recruiting data
 #=====================================================================
 
-### i. read data 
+### i. read and examine data 
+
+## (a) ozan
 
 recruiting_dt <- fread(file = file.path(getwd(), "data","recruiting_data_ozan.csv"))
 
-### ii. get just hs visits for UA and UGA and all others
+## (b) self-produced
+
+panel_recruiting_dt <- fread(file = file.path(getwd(), "data","full_ua_recruiting_scrape.csv"))
+# overcounting places with location by 1 (missing city, removed it)
+panel_recruiting_dt <- panel_recruiting_dt[city != ""]
+# manual fix to city
+panel_recruiting_dt[,city := fcase(city %flike% "A Shoreham", "Shoreham", 
+                                   city %flike% "E. Hanna Ave. Indianapolis", "Indianapolis", 
+                                   city %flike% "Winston-Salem", "Winston Salem", 
+                                   default = city)]
+# replace "Ft" or "Ft." with "Fort"
+panel_recruiting_dt$city <- gsub("\\bFt\\.?\\b", "Fort", panel_recruiting_dt$city, ignore.case = TRUE)
+# replace "Mt" or "Mt." with "Mount"
+panel_recruiting_dt$city <- gsub("\\bMt\\.?\\b", "Mount", panel_recruiting_dt$city, ignore.case = TRUE)
+# replace "St" or "St." with "Saint"
+panel_recruiting_dt$city <- gsub("\\bSt\\.?\\b", "Saint", panel_recruiting_dt$city, ignore.case = TRUE)
+# remove period
+panel_recruiting_dt$city <- gsub("\\b(Fort|Mount|Saint)\\.", "\\1", panel_recruiting_dt$city)
+
+restricted_panel_recruiting_dt <- panel_recruiting_dt[!(extracted_EventName %flike% "Email") & 
+                                                        !(extracted_EventName %flike% "email") &
+                                                      !(extracted_EventName %flike% "coffee") &
+                                                      !(extracted_EventName %flike% "Coffee") & 
+                                                      !(extracted_EventName %flike% "Cofffee")]
+
+restricted_panel_recruiting_dt[, `In-State` := fifelse(state_abbrev == "AL", "Yes", "No")]
+restricted_panel_recruiting_dt[, oos_flag := fifelse(state_abbrev == "AL", 0, 1)]
+
+# compare my sample to ozan's cleaned sample
+nrow(restricted_panel_recruiting_dt[extracted_year == 2017])
+nrow(recruiting_dt[univ_id == 100751 & categorized_event_type %in% c("collegefair","hsvisit","collegevisit","")])
+nrow(restricted_panel_recruiting_dt[extracted_year == 2017 & oos_flag == 1])
+nrow(recruiting_dt[univ_id == 100751 & categorized_event_type %in% c("collegefair","hsvisit","collegevisit","") & event_state != "AL"])
+## (c) plot visits over time and save
+plot_visits_over_time <- ggplot(restricted_panel_recruiting_dt[extracted_date <= "2020-06-01"], aes(x = extracted_date, fill = `In-State`)) +
+  geom_histogram(position = "identity", binwidth = 7, alpha = 0.8, color = 'black') +
+  labs(x = "Event Week",
+    y = "Number of Admissions Officer Events"
+  ) +
+  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
+    text = element_text(size = 12)
+  ) 
+
+print(plot_visits_over_time)
+
+ggsave(file.path(getwd(),"figures","descriptive-figs","recruiting_time_series.png"), plot = plot_visits_over_time,
+       width = 8, height = 4.5)
+
+## ii. use panel to get at responsiveness of enrollment to visits in regression
+
+year_by_town_visit_counts <- restricted_panel_recruiting_dt[,.N,.(extracted_year, city, state)]
+year_visit_counts <- restricted_panel_recruiting_dt[,.N,.(extracted_year)]
+
+## (a) panel of visits
+full_years_dt <- restricted_panel_recruiting_dt[extracted_year %in% c(2017,2018,2019)]
+## (b) panel of enrollment
+ua_dt[, TownName := OriginTown]
+ua_dt[, StateName := OriginState]
+ua_full_years_dt <- ua_dt[Year %in% c(2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024) & StateName != "International" & TownName != ""]
+ua_full_years_counts_dt <- ua_full_years_dt[,.N,.(TownName, StateName,Year)]
+setnames(ua_full_years_counts_dt, "N", "UACount")
+
+## (c) panel of high school enrollment
+panel_hs_dt <- fread(file = file.path(getwd(), "data","bama_highschool_2011_2024.csv"))
+panel_hs_dt[, Rank := frank(-Enrollment, ties.method = "min") - 2, by = Year]
+num_years <- panel_hs_dt[,.N,.(School)]
+num_years_limited <- panel_hs_dt[Year %in% c(2015, 2016, 2017, 2018, 2019, 2020),.N,.(School)]
+schools_14_years <- num_years[N == 14, School]
+# filter the dataset to keep only schools always in
+for_corr_hs_dt <- panel_hs_dt[
+  Rank >= 1 & 
+    School != "Unknown" & 
+    School != "Home-Schooled or GED" & 
+    School %in% schools_14_years
+]
+
+setorder(for_corr_hs_dt, School, Year)
+for_corr_hs_dt[, Rank_Lag := shift(Rank, type = "lag"), by = School]
+for_corr_hs_dt[, Enrollment_Lag := shift(Enrollment, type = "lag"), by = School]
+# persistence measures
+correlation <- for_corr_hs_dt[!is.na(Rank_Lag), cor(Rank, Rank_Lag)]
+print(correlation)
+correlation_enr <- for_corr_hs_dt[!is.na(Enrollment_Lag), cor(Enrollment, Enrollment_Lag)]
+print(correlation_enr)
+# Compute the correlation between current and lagged rank
+correlation <- panel_hs_dt[!is.na(Rank_Lag), cor(Rank, Rank_Lag)]
+print(correlation)
+# visualization
+enrollment_correlation <- ggplot(for_corr_hs_dt[!is.na(Enrollment_Lag)], aes(x = Enrollment_Lag, y = Enrollment)) +
+  geom_point(alpha = 0.6, color = "#440154FF") +
+  geom_smooth(method = "lm", se = T, color = "#21908CFF") +
+  labs(x = "Previous Year Enrollment", y = "Current Year Enrollment") + theme_bw() + removeGridX() + 
+  ylim(0,130) + xlim(0,130)
+
+print(enrollment_correlation)
+
+ggsave(file.path(getwd(),"figures","descriptive-figs","school_enrollment_correlation.png"), plot = enrollment_correlation,
+       width = 8, height = 4.5)
+
+
+### iii. get just hs visits for UA and UGA and all others
 
 hs_recruiting_dt <- recruiting_dt[categorized_event_type %flike% "hsvisit"]
 
@@ -280,25 +385,25 @@ uga_hs_dt[,.N,.(InState)]
 
 ua_recruiting_dt <- recruiting_dt[univ_id == 100751]
 
-# 1. Get the polygon data for the US
+## (a) et the polygon data for the US
 usa_map <- map_data("state")
 sub_dt <- ua_recruiting_dt[
   categorized_event_type %in% c("collegefair", "hsvisit")
 ]
 
-# Summarize the total visits by state
+# summarize the total visits by state
 visits_by_state <- sub_dt[, .(total_visits = .N), by = event_state]
 
-# Map from state abbreviations to full, lowercase names
+# map from state abbreviations to full, lowercase names
 state_xwalk <- data.table(
   event_state = c(state.abb, "DC"),
   region      = tolower(c(state.name, "district of columbia"))
 )
 
-# Merge summarized data with state crosswalk
+# merge summarized data with state crosswalk
 visits_by_state <- merge(visits_by_state, state_xwalk, by = "event_state", all.x = TRUE)
 
-# Merge to associate `total_visits` with each polygon
+# merge to associate `total_visits` with each polygon
 map_visits <- merge(usa_map, visits_by_state, by = "region", all.x = TRUE)
 
 map_visits <- setDT(map_visits)
@@ -312,10 +417,10 @@ map_visits[, visits_bin := cut(
   right  = FALSE  # `[start, end)` intervals
 )]
 
-# 7 reds from light to dark
+# set up 7 reds from light to dark
 red_colors <- brewer.pal(7, "Reds")
 
-# Create a custom color vector with white for the "0" bin,
+# create a custom color vector with white for the "0" bin,
 # then the 6 red tones for the other levels
 custom_colors <- c("0" = "white",
                    "1–9" = red_colors[1],
@@ -335,9 +440,9 @@ ua_recruiting_dt[, `Event Type` := fcase(
   default = categorized_event_type
 )]
 
-# 2. Plot the map and the points
+## (b) plot the map and the points
 recruiting_map <- ggplot() +
-  # a) US state polygons
+  # US state polygons
   geom_polygon(
     data = map_visits,
     aes(x = long, y = lat, group = group, fill = visits_bin),
@@ -345,13 +450,13 @@ recruiting_map <- ggplot() +
     # fill = "white",
     # #color = "gray50"
   ) +
-  # b) Recruiting location points
+  # recruiting location points
   geom_point(
     data = ua_recruiting_dt[categorized_event_type == "collegefair" | categorized_event_type == "hsvisit"],
     aes(x = longitude, y = latitude, color = `Event Type`),
     alpha = 0.8, size = 0.75
   ) + scale_color_viridis_d() + 
-  # c) For more accurate lat/lon plotting
+  # for more accurate lat/lon plotting
   coord_quickmap() +
   labs(
     x = "Longitude",
@@ -363,7 +468,7 @@ recruiting_map <- ggplot() +
   )+
   theme_bw() + removeGrid() + 
   theme(
-    # Remove or reduce the plot margin
+    # remove or reduce the plot margin
     plot.margin = margin(t = 0, r = 5, b = 0, l = 5, unit = "pt")
   )
 
@@ -372,12 +477,12 @@ plot(recruiting_map)
 ggsave(file.path(getwd(),"figures","descriptive-figs","state_recruiting.png"), plot = recruiting_map,
        width = 8, height = 6)
 
-## (a) check descriptives
+## (d) check descriptives
 
 # 67.5% public hs, 31.9% private hs
 ua_hs_visit_dt <- ua_recruiting_dt[categorized_event_type %flike% "hsvisit"]
 
-### iii. merge visits with ua_dt for just 2022
+### iv merge visits with ua_dt for just 2022
 
 ua_dt[, TownName := OriginTown]
 ua_dt[, StateName := OriginState]
@@ -399,7 +504,7 @@ visit_counts_dt <- ua_hs_visit_dt[TownName != "",.N,.(TownName, StateName)]
 
 setnames(visit_counts_dt, "N", "VisitCount")
 
-### iv. merge visits with enrollment (2022) counts
+### v. merge visits with enrollment (2022) counts
 
 merged_ua_hs_visit_dt <- merge(ua_counts_dt, visit_counts_dt, by = c("TownName", "StateName"), all.x = T, all.y = T)
 
@@ -445,7 +550,7 @@ ggsave(file.path(getwd(),"figures","recruiting_iv.png"), plot = iv_plot,
        width = 8, height = 4.5)
 
 
-### v. extend cross-section IV to look at changes from 2006 
+### vi. extend cross-section IV to look at changes from 2006 
 
 ## (a) merges and descriptive regressions
 
@@ -514,7 +619,7 @@ print(iv_plot_changes)
 ggsave(file.path(getwd(),"figures","recruiting_iv_changes.png"), plot = iv_plot_changes,
        width = 8, height = 4.5)
 
-### vi. look at correlation of recruiting IV with pre-visit (2021) shares
+### vii. look at correlation of recruiting IV with pre-visit (2021) shares
 
 ## (a) prep data
 
@@ -588,7 +693,7 @@ ggsave(file.path(getwd(),"figures","descriptive-figs","recruiting_iv_2021_counts
        width = 8, height = 4.5)
 
 
-### vii. recruiting regressions for appendix table
+### viii. recruiting regressions for appendix table
 
 dt_bin <- copy(merged_ua_hs_visit_changes_dt)
 
