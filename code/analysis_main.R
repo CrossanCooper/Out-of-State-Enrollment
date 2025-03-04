@@ -53,6 +53,12 @@ ipeds_shares <- iv %>%
          N_origin = enroll) %>%
   select(state, grad_y, o_share, N_origin)
 
+# Get other pull factors (unemployment rates, net migration rates) as controls
+pull_factors <- readRDS(paste0(pathHome, 'data/pull_factors.rds')) %>%
+  select(-c('pop', 'arrive', 'depart')) %>%
+  # Rename DC
+  mutate(state = if_else(state == 'District of Columbia', 'Washington, D.C.', state))
+
 # Instead of IPEDS, try defining origin shares with the full Commencement records
 
 # Read in full Commencement records
@@ -75,6 +81,9 @@ shares <- comm %>%
   summarize(o_share = n() / mean(N_cohort) * 100,
             N_origin = n()) %>%
   select(state, grad_y, o_share, N_origin)
+
+# Save origin-state shares
+saveRDS(shares, paste0(pathHome, 'data/shares.rds'))
 
 # Add in destination shares
 shares <- dest %>%
@@ -103,6 +112,10 @@ shares <- shares %>%
   right_join(shares) %>%
   # Get difference in log shares (relative to outside good)
   mutate(diff_log_d_share = log_d_share - log_al_share)
+
+# Attach unemployment rates (and migration rates)
+shares <- shares %>%
+  left_join(rename(pull_factors, grad_y = y))
 
 # Join origin and destination data
 # Used for conditioning on origin, as well as full conditional logit model
@@ -136,7 +149,7 @@ share_ins <- join %>%
 share_ins <- shares %>%
   filter(state != 'Alabama') %>%
   rename(d_state = state) %>%
-  select(d_state, grad_y, o_share, N_origin) %>%
+  select(d_state, grad_y, o_share, N_origin, ur) %>%
   right_join(share_ins) %>%
   # Impute zero origin students
   mutate(N_origin = if_else(is.na(N_origin), 0, N_origin))
@@ -148,6 +161,39 @@ share_ins <- share_ins %>%
   select(log_d_share, grad_y) %>%
   rename(log_al_share = log_d_share) %>%
   right_join(share_ins) %>%
+  # Remove the outside good
+  filter(d_state != 'Alabama') %>%
+  # Get difference in log shares (relative to outside good)
+  mutate(diff_log_d_share = log_d_share - log_al_share)
+
+# Get in-state student shares, split by honors status
+share_hon <- join %>%
+  mutate(hon = Honors != 'No') %>%
+  filter(o_state == 'Alabama') %>%
+  group_by(grad_y, hon) %>%
+  mutate(N_cohort = n()) %>%
+  group_by(grad_y, d_state, N_cohort, hon) %>%
+  summarize(d_share = n() / mean(N_cohort),
+            N_dest = n()) %>%
+  # Remove zero-share destinations (can't take log)
+  filter(d_share > 0) %>%
+  # Get log destination shares
+  mutate(log_d_share = log(d_share)) %>%
+  # Remove 2024 (incomplete data)
+  filter(grad_y < 2024)
+share_hon <- shares %>%
+  filter(state != 'Alabama') %>%
+  rename(d_state = state) %>%
+  select(d_state, grad_y, o_share, N_origin) %>%
+  right_join(share_hon) %>%
+  # Impute zero origin students
+  mutate(N_origin = if_else(is.na(N_origin), 0, N_origin))
+share_hon <- share_hon %>%
+  filter(d_state == 'Alabama') %>%
+  ungroup() %>%
+  select(log_d_share, grad_y) %>%
+  rename(log_al_share = log_d_share) %>%
+  right_join(share_hon) %>%
   # Remove the outside good
   filter(d_state != 'Alabama') %>%
   # Get difference in log shares (relative to outside good)
@@ -199,6 +245,28 @@ join_acs <- dest %>%
   # Get origin state
   rename(o_state = state) %>%
   filter(grad_y < 2024)
+
+# Split by honors status --------------------------------------------------------
+
+# Identify honors students
+join <- join %>%
+  mutate(hon = Honors != 'No')
+
+# What share of students are Honors in each cohort?
+join %>%
+  group_by(grad_y, hon) %>%
+  summarize(N = n()) %>%
+  ggplot(aes(x = grad_y, y = N, fill = hon)) +
+  geom_bar(stat = 'identity', position = 'stack') +
+  scale_fill_manual(values = c('indianred3', 'steelblue3')) +
+  labs(fill = 'Honors',
+       x = 'Graduation year') +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        legend.position = 'right',
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+ggsave(paste0(pathFigures, 'analysis_main/honors_sample.png'), width = 6, height = 5)
 
 # Sample descriptives -----------------------------------------------------------
 
@@ -390,6 +458,9 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
          oos = o_state != 'Alabama') %>%
   # Join on origin-share data
   left_join(rename(shares, alternative = state)) %>%
+  # Remove unemployment rate and reattach separately (to fix NAs)
+  select(-c('ur', 'in_rate', 'out_rate', 'net_rate')) %>%
+  left_join(rename(pull_factors, grad_y = y, alternative = state)) %>%
   # Impute zero origin shares where missing
   mutate(o_share = if_else(is.na(o_share), 0, o_share)) %>%
   # Fix the Alabama origin share to zero
@@ -406,6 +477,13 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
          t_AL_ins = t_AL * !oos) %>%
   # Arrange dataframe
   arrange(user_id, alternative)
+
+# Convert alternatives to simpler names for Stata
+alternative_dict <- data.frame(alternative = unique(join_bal$alternative),
+                               code = paste0('alt', c(paste0('0', 1:9), 10:length(unique(join_bal$alternative)))))
+# Attach new alternative names
+join_bal <- join_bal %>%
+  left_join(alternative_dict)
 
 # For ACS-linked version splitting Alabama by income
 join_bal_acs <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(join$d_state))),
@@ -461,6 +539,10 @@ mod3 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_
 # Multinomial logit, heterogeneity and cohort effects on Alabama utilities
 mod4 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins)))
 
+# Now control for unemployment rate and net migration rate
+# Exclude 2020 (Covid year) due to missing migration data
+mod5 <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos + o_share_ins + t_AL_oos + t_AL_ins + ur + net_rate, data = join_bal %>% filter(grad_y != 2020) %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins)))
+
 # Now split in-state students by rich/poor
 
 # Multinomial logit, heterogeneity and trends in Alabama utilities
@@ -475,12 +557,79 @@ se1 <- sqrt(diag(vcovCL(mod1, type = 'HC1')))
 se2 <- sqrt(diag(vcovCL(mod2, type = 'HC1')))
 se3 <- sqrt(diag(vcovCL(mod3, type = 'HC1')))
 se4 <- sqrt(diag(vcovCL(mod4, type = 'HC1')))
-# Can also cluster by origin state if we wish
-# This isn't working at the moment
-sqrt(diag(vcovCL(mod0, cluster = ~o_state, type = 'HC1')))
+se5 <- sqrt(diag(vcovCL(mod5, type = 'HC1')))
 
 # Output table
-stargazer(mod0, mod1, mod2, mod3, mod4, omit = c('Intercept'), se = list(se0, se1, se2, se3, se4))
+stargazer(mod0, mod1, mod2, mod3, mod4, mod5, omit = c('Intercept'), se = list(se0, se1, se2, se3, se4, se5))
+
+# Also get cluster SE from Stata
+vcov0 <- read.csv(paste0(pathHome, 'data/vcov_mod0.csv'))
+vcov1 <- read.csv(paste0(pathHome, 'data/vcov_mod1.csv'))
+vcov2 <- read.csv(paste0(pathHome, 'data/vcov_mod2.csv'))
+vcov3 <- read.csv(paste0(pathHome, 'data/vcov_mod3.csv'))
+vcov4 <- read.csv(paste0(pathHome, 'data/vcov_mod4.csv'))
+vcov5 <- read.csv(paste0(pathHome, 'data/vcov_mod5.csv'))
+
+# Get function to clean Stata SEs
+clean_stata_se <- function(vcov, mod) {
+  
+  # Clean up to match R version
+  vcov <- data.frame(lapply(vcov, function(x) gsub("=", "", x)), stringsAsFactors = FALSE) %>%
+    mutate(X. = case_when(X. == '_cons' ~ lag(X.),
+                          str_detect(X., 'alt') ~ NA,
+                          .default = X.)) %>%
+    filter(!is.na(X.) & X. != 'code')
+  
+  # Get stata and R variable names (in their original orders)
+  stata_vars <- vcov$X.
+  R_vars <- gsub('\\(Intercept\\):|TRUE|FALSE', '', colnames(vcov(mod)))
+  
+  # Replace Stata variable names with R variable names
+  stata_vars <- if_else(stata_vars %in% alternative_dict$code, 
+                        alternative_dict$alternative[match(stata_vars, alternative_dict$code)], 
+                        stata_vars)
+  
+  # Replace cohort FE names
+  stata_cohort <- if_else(grepl("^\\d", stata_vars), sub("^([0-9]+).*", "\\1", stata_vars), '')
+  stata_vars <- paste0(sub("^\\d+\\.", "", stata_vars), stata_cohort)
+  # Remove variable-name column
+  vcov <- vcov %>%
+    select(-X.) %>%
+    # Turn into numeric
+    mutate_all(as.numeric)
+  # Assign cleaned names
+  rownames(vcov) <- colnames(vcov) <- stata_vars
+  # Remove cohort zero
+  vcov <- vcov[!str_detect(rownames(vcov), '0b'), !str_detect(colnames(vcov), '0b')]
+  # Reorder matrix to match R variable ordering
+  vcov <- vcov[R_vars, R_vars]
+  
+  as.matrix(vcov)
+  
+}
+
+# Clean cluster-robust SEs from Stata to match R formatting
+vcov0 <- clean_stata_se(vcov0, mod0)
+vcov1 <- clean_stata_se(vcov1, mod1)
+vcov2 <- clean_stata_se(vcov2, mod2)
+vcov3 <- clean_stata_se(vcov3, mod3)
+vcov4 <- clean_stata_se(vcov4, mod4)
+vcov5 <- clean_stata_se(vcov5, mod5)
+
+# Now can get SEs from diagonal and apply Delta method using these v-cov matrices
+se0 <- sqrt(diag(vcov0))
+se1 <- sqrt(diag(vcov1))
+se2 <- sqrt(diag(vcov2))
+se3 <- sqrt(diag(vcov3))
+se4 <- sqrt(diag(vcov4))
+se5 <- sqrt(diag(vcov5))
+
+# Rename a few SEs for output table
+names(se0) <- if_else(names(se0) == 'home_state', 'home_stateTRUE', names(se0))
+names(se1) <- if_else(names(se1) == 'home_state', 'home_stateTRUE', names(se1))
+
+# Output table with cluster-robust SEs
+stargazer(mod0, mod1, mod2, mod3, mod4, mod5, omit = c('Intercept', 't_AL_ins', 't_AL_oos'), se = list(se0, se1, se2, se3, se4, se5))
 
 # Get AMEs ----------------------------------------------------------------------
 
@@ -548,6 +697,12 @@ ame1_se <- sqrt(jac1 %*% vcovCL(mod1, type = 'HC1') %*% t(jac1))
 ame2_se <- sqrt(jac2 %*% vcovCL(mod2, type = 'HC1') %*% t(jac2))
 ame3_se <- sqrt(jac3 %*% vcovCL(mod3, type = 'HC1') %*% t(jac3))
 
+# Cluster-robust standard errors
+ame0_se_cl <- sqrt(jac0 %*% vcov0 %*% t(jac0))
+ame1_se_cl <- sqrt(jac1 %*% vcov1 %*% t(jac1))
+ame2_se_cl <- sqrt(jac2 %*% vcov2 %*% t(jac2))
+ame3_se_cl <- sqrt(jac3 %*% vcov3 %*% t(jac3))
+
 # Get dataframe for prediction
 # This is for the model with non-parametric trends
 pred_bal <- join_bal %>%
@@ -575,6 +730,49 @@ jac4 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod4)}, mod4$c
 
 # Standard error via Delta method
 ame4_se <- sqrt(jac4 %*% vcovCL(mod4, type = 'HC1') %*% t(jac4))
+
+# Cluster-robust SE
+ame4_se_cl <- sqrt(jac4 %*% vcov4 %*% t(jac4))
+
+# Get dataframe for prediction
+# This is for the model with non-parametric trends that omits the Covid year
+pred_bal <- join_bal %>%
+  filter(grad_y != 2020) %>%
+  mutate(t_AL_oos = factor(t_AL_oos),
+         t_AL_ins = factor(t_AL_ins)) %>%
+  filter(user_id %in% pred$user_id)
+
+# Reweight to account for missing 2020
+pred <- pred %>%
+  mutate(pred_weight = pred_weight / (1 - pred$pred_weight[pred$grad_y == 2020])) %>%
+  filter(grad_y != 2020)
+
+# Function giving average marginal effect of 1pp increase in OOS share in terms of
+# model coefficients
+ame <- function(coefs, x, mod) {
+  
+  # Replace model coefficients with coefs
+  mod$coefficients <- coefs
+  
+  # Compute AME (explicit formula from derivative of Pr(j) wrt d_{k})
+  pred$pred_weight %*% t(weights$pct %*% t(-mod$coefficients[x] * predict(mod, pred_bal)[, 'Alabama'] * predict(mod, pred_bal)[, weights$o_state]))
+  
+}
+
+# Point estimate
+ame(mod5$coefficients, x = 'o_share_ins', mod = mod5)
+
+# Get Jacobian
+jac5 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod5)}, mod5$coefficients)
+
+# Standard error via Delta method
+ame5_se <- sqrt(jac5 %*% vcovCL(mod5, type = 'HC1') %*% t(jac5))
+
+# Cluster-robust SE
+ame5_se_cl <- sqrt(jac5 %*% vcov5 %*% t(jac5))
+
+# Save data for use in Stata
+write_dta(join_bal, paste0(pathHome, 'data/join_bal.dta'))
 
 # Counterfactuals ---------------------------------------------------------------
 
@@ -699,6 +897,9 @@ jac_tot <- jacobian(function(coefs) {tot_leaving(coefs, mod = mod4)}, mod4$coeff
 # Get standard error via Delta method
 sqrt(jac_tot %*% vcovCL(mod4, type = 'HC1') %*% t(jac_tot))
 
+# Cluster-robust SE
+sqrt(jac_tot %*% vcov4 %*% t(jac_tot))
+
 # Get predicted effect on probability of leaving for each cohort
 prob_staying <- function(coefs, cf, y) {
   
@@ -806,7 +1007,6 @@ for (i in 1:length(years)) {
 
 # Plot the number of students induced to leave in each cohort
 exit_over_time %>%
-  # Set the CI to zero in the base year, where induced exit is zero by construction
   ggplot(aes(x = y, y = estimate)) +
   geom_line(col = 'indianred3', lwd = 1) +
   geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, fill = 'indianred3') +
@@ -820,3 +1020,58 @@ exit_over_time %>%
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
 ggsave(paste0(pathFigures, 'analysis_main/flow_exit.png'), width = 6, height = 5)
+
+# Get cumulative number of students induced to leave
+
+# Get cumulative effect over time with standard error via Delta method
+# This is for the richest model (model 4 with cohort FE)
+tot_leaving_over_time <- function(coefs, y) {
+  
+  # Replace estimated coefficients
+  mod4$coefficients <- coefs
+  
+  # For each year, get probability of staying in Alabama for static and updating counterfactuals
+  prob_AL_static <- predict(mod4, data_static)[1:(y - 2005), 1]
+  prob_AL_updating <- predict(mod4, data_updating)[1:(y - 2005), 1]
+  
+  # Calculating number of students induced to leave from 2006
+  sum(ef$EFRES01[1:(y - 2005)] * (prob_AL_static - prob_AL_updating))
+  
+}
+
+# Get estimates and standard errors for each year
+exit_over_time <- exit_over_time %>%
+  mutate(estimate_cum = NA,
+         se_cum = NA)
+
+for (i in 1:length(years)) {
+  
+  # Get estimate
+  exit_over_time$estimate_cum[i] <- tot_leaving_over_time(mod4$coefficients, exit_over_time$y[i])
+  
+  # Get Jacobian
+  jac_temp <- jacobian(function(coefs) {tot_leaving_over_time(coefs, y = exit_over_time$y[i])}, mod4$coefficients)
+  
+  # Get cluster-robust standard error via Delta method
+  exit_over_time$se_cum[i] <- sqrt(jac_temp %*% vcov4 %*% t(jac_temp))
+  
+  # Tracker
+  print(years[i])
+  
+}
+
+# Plot the total number of students induced to leave over time
+exit_over_time %>%
+  ggplot(aes(x = y, y = estimate_cum)) +
+  geom_line(col = 'indianred3', lwd = 1) +
+  geom_ribbon(aes(ymin = estimate_cum - 1.96*se_cum, ymax = estimate_cum + 1.96*se_cum), alpha = 0.2, fill = 'indianred3') +
+  labs(x = 'Year',
+       title = 'Counterfactual estimates for in-state students',
+       y = 'Total # induced to leave Alabama since 2006',
+       col = NULL) +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+ggsave(paste0(pathFigures, 'analysis_main/total_exit.png'), width = 5, height = 4.5)
