@@ -24,6 +24,10 @@ library(ggpubr)
 library(estimatr)
 library(tidycensus)
 library(mlogit)
+library(sf)
+library(sandwich)
+library(numDeriv)
+library(beepr)
 
 # Paths -------------------------------------------------------------------------
 
