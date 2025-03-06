@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-20-25
+## Last Modified: 3-6-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -147,8 +147,7 @@ summer_fall_2017_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_d
 summer_fall_2021_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2021_bachelors.xlsx")))
 summer_fall_2022_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2022_bachelors.xlsx")))
 summer_fall_2023_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2023_bachelors.xlsx")))
-
-summer_2024_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_2024_bachelors.xlsx")))
+summer_fall_2024_bachelors_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2024_bachelors.xlsx")))
 
 summer_fall_2006_all_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2006_all.xlsx")))
 summer_fall_2018_all_dt <- setDT(read_excel(file.path(getwd(),"generated_data","Summer and Fall","summer_fall_2018_all.xlsx"), col_types = c("text", "text", "text", "text", "text")))
@@ -180,7 +179,7 @@ summer_fall_2020_bachelors_dt[, Year := 2020]
 summer_fall_2021_bachelors_dt[, Year := 2021]
 summer_fall_2022_bachelors_dt[, Year := 2022]
 summer_fall_2023_bachelors_dt[, Year := 2023]
-summer_2024_bachelors_dt[, Year := 2024]
+summer_fall_2024_bachelors_dt[, Year := 2024]
 
 ### standardize state information
 
@@ -193,7 +192,7 @@ summer_fall_2017_bachelors_dt[, State := str_sub(Location, -3, -1)]
 summer_fall_2021_bachelors_dt[, State := str_sub(Location, -3, -1)]
 summer_fall_2022_bachelors_dt[, State := str_sub(Location, -3, -1)]
 summer_fall_2023_bachelors_dt[, State := str_sub(Location, -3, -1)]
-summer_2024_bachelors_dt[, State := str_sub(Location, -3, -1)]
+summer_fall_2024_bachelors_dt[, State := str_sub(Location, -3, -1)]
 
 summer_fall_2007_bachelors_dt[, State := fifelse(grepl(",", Location), str_sub(Location, -3, -1), "AL")]
 summer_fall_2008_bachelors_dt[, State := fifelse(grepl(",", Location), str_sub(Location, -3, -1), "AL")]
@@ -223,7 +222,7 @@ summer_fall_2020_bachelors_dt[, State := fifelse(grepl("[A-Z]", State), State, "
 summer_fall_2021_bachelors_dt[, State := fifelse(grepl("[A-Z]", State), State, "International")]
 summer_fall_2022_bachelors_dt[, State := fifelse(grepl("[A-Z]", State), State, "International")]
 summer_fall_2023_bachelors_dt[, State := fifelse(grepl("[A-Z]", State), State, "International")]
-summer_2024_bachelors_dt[, State := fifelse(grepl("[A-Z]", State), State, "International")]
+summer_fall_2024_bachelors_dt[, State := fifelse(grepl("[A-Z]", State), State, "International")]
 
 
 ### combine into single data table
@@ -246,14 +245,14 @@ su_fa_20_dt <- summer_fall_2020_bachelors_dt[,c(1:3,5:6)]
 su_fa_21_dt <- summer_fall_2021_bachelors_dt
 su_fa_22_dt <- summer_fall_2022_bachelors_dt
 su_fa_23_dt <- summer_fall_2023_bachelors_dt
-su_24_dt <- summer_2024_bachelors_dt
+su_fa_24_dt <- summer_fall_2024_bachelors_dt
 
 su_fa_all_dt <- rbind(su_fa_06_dt, su_fa_07_dt, su_fa_08_dt, 
                       su_fa_09_dt, su_fa_10_dt, su_fa_11_dt, 
                       su_fa_12_dt, su_fa_13_dt, su_fa_14_dt,
                       su_fa_15_dt, su_fa_16_dt, su_fa_17_dt,
                       su_fa_18_dt, su_fa_19_dt, su_fa_20_dt, 
-                      su_fa_21_dt, su_fa_22_dt, su_fa_23_dt, su_24_dt, fill = T)
+                      su_fa_21_dt, su_fa_22_dt, su_fa_23_dt, su_fa_24_dt, fill = T)
 
 for_plot_su_fa_dt <- su_fa_all_dt[,c(2,5)]
 
