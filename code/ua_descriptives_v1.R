@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-27-25
+## Last Modified: 3-4-26
 
 ## file use: explore cleaned UA data
 #
@@ -24,10 +24,8 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,RColorBrewer,
                tidycensus,educationdata,foreach,binsreg,
                doParallel,readxl,did,ggExtra,DBI)
 
-# set working directory
+# set working directory -- replace with own if needed
 setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
-
-# replace here with wd: file.path(getwd(),
 
 #=====================================================================
 # 1 - read and edit the cleaned commencement data
@@ -353,9 +351,17 @@ correlation <- for_corr_hs_dt[!is.na(Rank_Lag), cor(Rank, Rank_Lag)]
 print(correlation)
 correlation_enr <- for_corr_hs_dt[!is.na(Enrollment_Lag), cor(Enrollment, Enrollment_Lag)]
 print(correlation_enr)
-# Compute the correlation between current and lagged rank
-correlation <- panel_hs_dt[!is.na(Rank_Lag), cor(Rank, Rank_Lag)]
-print(correlation)
+# correlation for all
+final_panel_hs_dt <- panel_hs_dt[Rank >= 1 & 
+                                  School != "Unknown" & 
+                                  School != "Home-Schooled or GED"]
+setorder(final_panel_hs_dt, School, Year)
+final_panel_hs_dt[, Rank_Lag := shift(Rank, type = "lag"), by = School]
+final_panel_hs_dt[, Enrollment_Lag := shift(Enrollment, type = "lag"), by = School]
+correlation_for_all <- final_panel_hs_dt[!is.na(Rank_Lag), cor(Rank, Rank_Lag)]
+print(correlation_for_all)
+correlation_for_all_enr <- final_panel_hs_dt[!is.na(Enrollment_Lag), cor(Enrollment, Enrollment_Lag)]
+print(correlation_for_all_enr)
 # visualization
 enrollment_correlation <- ggplot(for_corr_hs_dt[!is.na(Enrollment_Lag)], aes(x = Enrollment_Lag, y = Enrollment)) +
   geom_point(alpha = 0.6, color = "#440154FF") +

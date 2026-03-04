@@ -18,6 +18,9 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                tidycensus,educationdata,foreach,
                doParallel,readxl,did,ggExtra,readr)
 
+# set working directory
+setwd("/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project")
+
 #=====================================================================
 # 1 - read and edit data
 #=====================================================================
@@ -26,7 +29,6 @@ pacman::p_load(tidyverse,data.table,ggplot2,skimr,
 
 dt_0 <- fread(file = file.path(getwd(),"data","CollegeAdmissions_Data.csv"))
 dt_1 <- dt_0[public == "Public"]
-
 
 # 29 out of 51 are public flagships
 

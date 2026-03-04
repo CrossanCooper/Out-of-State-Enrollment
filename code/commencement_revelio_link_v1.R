@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 3-6-25
+## Last Modified: 3-7-25
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -16,7 +16,7 @@
 ## figure outputs:
 # (i) figures/trends_enrollment_area.png -- enrollment trends as area plot
 # (ii) figures/trends_enrollment.png -- enrollment trends as bar plot
-# (iii) figures/oos_shares_plot.png -- 2006 vs. 2023 oos student shares by state
+# (iii) figures/oos_shares_plot.png -- 2006 vs. 2024 oos student shares by state
 #=====================================================================
 
 #=====================================================================
@@ -328,9 +328,9 @@ for_area_plot_dt[, RelativeTo2006 := fcase(
 
 for_area_plot_dt[, Origin := factor(Origin, levels = c( "International","Out-of-State", "In-State"))]
 
-area_plot <- ggplot(for_area_plot_dt[Year <= 2023], aes(x = Year, y = RelativeTo2006, group = Origin, fill = Origin)) + 
+area_plot <- ggplot(for_area_plot_dt[Year <= 2024], aes(x = Year, y = RelativeTo2006, group = Origin, fill = Origin)) + 
   geom_area(alpha = 0.8) + theme_bw() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
-  ylab("Degree Recipients (Relative to 2006)") + xlim(2006,2023) + 
+  ylab("Degree Recipients (Relative to 2006)") + xlim(2006,2024) + 
   theme(
     legend.position = "bottom",
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
@@ -350,6 +350,7 @@ bachelors_06_spring_dt <- bama_2006_dt[Degree %flike% "Bachelor"]
 bachelors_06_spring_dt[, InState := fifelse(State %flike% "AL", 1, 0)]
 
 combined_2006_dt <- rbind(bachelors_06_spring_dt, summer_fall_2006_bachelors_dt, fill = T)
+combined_2006_dt[, State := fifelse(str_length(trimws(State)) > 2, "International", State)]
 
 shares_06_dt <- combined_2006_dt[,.N,.(State)]
 
@@ -363,37 +364,53 @@ illinois_2023 <- combined_2023_dt[State %flike% "IL"]
 
 shares_23_dt <- combined_2023_dt[,.N,.(State)]
 
+bama_2024_dt[, State := str_sub(Location, -3, -1)]
+bama_2024_dt[, InState := fifelse(State %flike% "AL", 1, 0)]
+
+combined_2024_dt <- rbind(bama_2024_dt, summer_fall_2024_bachelors_dt, fill = T)
+combined_2024_dt[, State := fifelse(str_length(trimws(State)) > 2, "International", State)]
+illinois_2024 <- combined_2024_dt[State %flike% "IL"]
+
+shares_24_dt <- combined_2024_dt[,.N,.(State)]
+
 ### i. construct state-level OOS shares
 
 shares_23_dt[, Shares23 := 100*(N/nrow(combined_2023_dt[!(State %flike% "AL")]))]
 shares_23_dt[, State := trimws(State)]
 shares_06_dt[, Shares06 := 100*(N/nrow(combined_2006_dt[!(State %flike% "AL")]))]
 
-combined_shares_dt <- merge(shares_06_dt, shares_23_dt, by = "State", all.y = T)
+shares_24_dt[, Shares24 := 100*(N/nrow(combined_2024_dt[!(State %flike% "AL")]))]
+shares_24_dt[, State := trimws(State)]
+
+combined_shares_dt <- merge(shares_06_dt, shares_24_dt, by = "State", all.y = T)
 
 combined_shares_dt[, Shares06 := fifelse(is.na(Shares06), 0, Shares06)]
 
 combined_shares_for_plot_dt <- combined_shares_dt[State != "AL"]
 
-lm_fit <- lm(Shares23 ~ Shares06, data = combined_shares_for_plot_dt)
+lm_fit <- lm(Shares24 ~ Shares06, data = combined_shares_for_plot_dt)
 slope <- coef(lm_fit)[2]
 slope_text <- paste("Slope:", round(slope,2))
 
-### ii. Produce Figure 3 (06 vs 23 shares)
+### ii. Produce Figure 3 (06 vs 24 shares)
 
-shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares23)) + 
+shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares24)) + 
   geom_point(color = "#FDE725FF", size = 3, alpha = 0.8) + theme_bw() +
   geom_abline(slope = 1, intercept = 0, color = "#440154FF", linetype = "dashed", linewidth = 1) + 
   geom_smooth(method = "lm", se = T, color = "#414487FF", linetype = "dashed") + 
-  annotate("text", x = 2, y = 9, label = "IL", hjust = 1.1, vjust = 2, size = 4,
+  annotate("text", x = 2.1, y = 9, label = "IL", hjust = 1.1, vjust = 2, size = 4,
            color = "#21908CFF") + 
-  annotate("text", x = 24.6, y = 12.4, label = "GA", hjust = 1.1, vjust = 2, size = 4,
+  annotate("text", x = 24.8, y = 12.4, label = "GA", hjust = 1.1, vjust = 2, size = 4,
            color = "#21908CFF") + 
-  annotate("text", x = 17.3, y = 8.2, label = "TN", hjust = 1.1, vjust = 2, size = 4,
+  annotate("text", x = 18.2, y = 8.2, label = "TN", hjust = 1.1, vjust = 2, size = 4,
            color = "#21908CFF") + 
   annotate("text", x = 3.2, y = 6, label = "CA", hjust = 1.1, vjust = 2, size = 4,
            color = "#21908CFF") + 
-  labs(y = "2023 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25) 
+  annotate("text", x = 9.9, y = 2.2, label = "MS", hjust = 1.1, vjust = 2, size = 4,
+           color = "#21908CFF") + 
+  annotate("text", x = 0.8, y = 5.4, label = "NJ", hjust = 1.1, vjust = 2, size = 4,
+           color = "#21908CFF") +
+  labs(y = "2024 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25) 
 
 slope_val <- coef(lm_fit)[2]
 
@@ -471,7 +488,7 @@ all_bachelors_dt[, `:=`(
   suffix = unlist(lapply(suffix, as.character))
 )]
 
-# 106362 unique values (currently at xxx% match rate)
+# 107745 unique values (currently at xxx% match rate)
 nrow(unique(all_bachelors_dt, by = c("first_name", "middle_name", "last_name", "suffix", "Year")))
 
 setnames(all_bachelors_dt, c("Location","State"), c("Origin Town", "Origin State"))
