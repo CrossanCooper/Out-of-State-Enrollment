@@ -1,8 +1,12 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 2-6-25
+## Last Modified: 3-18-26
 
 ## analyze public data from chetty, friedman, deming wp
+#
+## inputs:
+## 1. CollegeAdmissions_Data.csv -- Chetty et al. 2023 public data
+## 2. appropriations_data.csv -- state appropriations data
 #=====================================================================
 
 #=====================================================================
@@ -78,9 +82,9 @@ app_dt_agg[, LogAppPerStudent := log(avgAppPerStudent)]
 # 2 - plots of attendance by income
 #=====================================================================
 
-### i. limit data
+### i. limit the data to the desired income bins
 
-## OUTCOME VARIABLES FOR EACH INCOME BIN:
+## (a) list of outcome variables for each income bin:
 # rel_attend & rel_apply & rel_att_cond_app
 # rel_apply_instate & rel_apply_oostate
 # rel_attend_instate & rel_attend_oostate
@@ -107,7 +111,7 @@ chetty_plot_1a <- ggplot(dt_summary_oo, aes(x = par_income_lab, y = mean_oostate
     y = "Relative Attendance Rate",
     fill = "Conference"
   ) +
-  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
+  theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_1a)
@@ -139,7 +143,7 @@ chetty_plot_1c <- ggplot(dt_summary_oo_apply, aes(x = par_income_lab, y = mean_o
        y = "Relative Application Rate",
        fill = "Conference"
   ) +
-  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
+  theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_1c)
@@ -155,7 +159,7 @@ chetty_plot_1d <- ggplot(dt_summary_in_apply, aes(x = par_income_lab, y = mean_i
        y = "Relative Application Rate",
        fill = "Conference"
   ) +
-  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
+  theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_1d)
@@ -171,7 +175,7 @@ chetty_plot_school_out <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_income_
        y = "Relative Attendance Rate",
        fill = "University"
   ) +
-  theme_bw() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
+  theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 6.03, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_school_out)
@@ -183,7 +187,7 @@ chetty_plot_school_in <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_income_l
        y = "Relative Attendance Rate",
        fill = "University"
   ) +
-  theme_bw() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
+  theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 6.03, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_school_in)
@@ -196,7 +200,7 @@ chetty_plot_school_out_app <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_inc
        y = "Relative Application Rate",
        fill = "University"
   ) +
-  theme_bw() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
+  theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 4.24, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_school_out_app)
@@ -208,7 +212,7 @@ chetty_plot_school_in_app <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_inco
        y = "Relative Application Rate",
        fill = "University"
   ) +
-  theme_bw() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
+  theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
   annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 4.11, alpha = 0, size = 1, color = "red")
 
 print(chetty_plot_school_in_app)
@@ -218,7 +222,7 @@ print(chetty_plot_school_in_app)
 # 3 - high income enrollment and appropriations
 #=====================================================================
 
-### i. add state to chetty data 
+### i. add state of university to chetty data 
 
 chetty_top1_dt <- dt_3b[par_income_lab %flike% "Top 1"]
 
@@ -277,21 +281,23 @@ chetty_top1_dt[, State := fcase(
   default = NA_character_
 )]
 
-### ii. merge chetty and agg data 
+### ii. merge chetty and appropriations data 
 
 merged_app_chetty_dt <- merge(app_dt_agg, chetty_top1_dt, by = "State")
 
 merged_app_chetty_dt[, avgAppPerStudent := avgAppPerStudent/1000]
 
-## (a) out of state
+## (a) out of state regressions
 
 feols(rel_attend_oostate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 feols(rel_attend_oostate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 
+mean(merged_app_chetty_dt[,rel_attend_oostate],na.rm = T)
+
 feols(rel_apply_oostate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 feols(rel_apply_oostate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 
-## (b) in state 
+## (b) in state regressions
 
 feols(rel_attend_instate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 feols(rel_attend_instate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)

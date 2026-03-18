@@ -1,14 +1,28 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 3-4-26
+## Last Modified: 3-9-26
 
 ## file use: explore cleaned UA data
 #
+## file inputs:
+## (i) data/all_alabama_data.csv -- all scanned UA graduates
+## (ii) data/recruiting_data_ozan.csv -- xx
+## (iii) data/full_ua_recruiting_scrape.csv -- xx
+## (iv) data/bama_highschool_2011_2024.csv -- xx
+## (v) data/linked_commencement_revelio_profile_data.csv -- xx
+## (vi) data/linked_commencement_revelio_profile_data.csv -- xx
+## (vii) data/first_spell_join.rds -- xx
+#
 ## figure outputs:
-# (i) figures/recruiting_iv.png -- how recruiting visits in 2017  
+## (i) figures/recruiting_iv.png -- how recruiting visits in 2017  
 #      affect enrollment in a cross-section
-# (ii) figures/recruiting_iv_changes.png -- how recruiting visits
+## (ii) figures/recruiting_iv_changes.png -- how recruiting visits
 #       in 2017 affect enrollment changes from 2006 - 2022
+## (iii) figures/?? -- xx
+## (iv) figures/?? -- xx
+## (v) figures/??? -- xx
+## (vi) figures/??? -- xx
+## (vii) figures/??? -- xx
 #=====================================================================
 
 #=====================================================================
@@ -292,10 +306,14 @@ restricted_panel_recruiting_dt <- panel_recruiting_dt[!(extracted_EventName %fli
 restricted_panel_recruiting_dt[, `In-State` := fifelse(state_abbrev == "AL", "Yes", "No")]
 restricted_panel_recruiting_dt[, oos_flag := fifelse(state_abbrev == "AL", 0, 1)]
 
-# compare my sample to ozan's cleaned sample
-nrow(restricted_panel_recruiting_dt[extracted_year == 2017])
+# compare my sample (restricted_panel_recruiting_dt) to ozan's cleaned sample (recruiting_dt)
+# we get 4368 observations
+nrow(restricted_panel_recruiting_dt[extracted_year == 2017]) 
+# ozan gets 4388 observations
 nrow(recruiting_dt[univ_id == 100751 & categorized_event_type %in% c("collegefair","hsvisit","collegevisit","")])
+# we get 3969 out of state observations
 nrow(restricted_panel_recruiting_dt[extracted_year == 2017 & oos_flag == 1])
+# ozan gets 3991 out of state observations
 nrow(recruiting_dt[univ_id == 100751 & categorized_event_type %in% c("collegefair","hsvisit","collegevisit","") & event_state != "AL"])
 ## (c) plot visits over time and save
 plot_visits_over_time <- ggplot(restricted_panel_recruiting_dt[extracted_date <= "2020-06-01"], aes(x = extracted_date, fill = `In-State`)) +
@@ -391,7 +409,7 @@ uga_hs_dt[,.N,.(InState)]
 
 ua_recruiting_dt <- recruiting_dt[univ_id == 100751]
 
-## (a) et the polygon data for the US
+## (a) get the polygon data for the US
 usa_map <- map_data("state")
 sub_dt <- ua_recruiting_dt[
   categorized_event_type %in% c("collegefair", "hsvisit")
@@ -483,7 +501,7 @@ plot(recruiting_map)
 ggsave(file.path(getwd(),"figures","descriptive-figs","state_recruiting.png"), plot = recruiting_map,
        width = 8, height = 6)
 
-## (d) check descriptives
+## (d) check descriptive facts
 
 # 67.5% public hs, 31.9% private hs
 ua_hs_visit_dt <- ua_recruiting_dt[categorized_event_type %flike% "hsvisit"]
