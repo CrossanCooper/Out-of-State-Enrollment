@@ -112,7 +112,14 @@ chetty_plot_1a <- ggplot(dt_summary_oo, aes(x = par_income_lab, y = mean_oostate
     fill = "Conference"
   ) +
   theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
+
 
 print(chetty_plot_1a)
 
@@ -125,8 +132,14 @@ chetty_plot_1b <- ggplot(dt_summary_in, aes(x = par_income_lab, y = mean_instate
        y = "Relative Attendance Rate",
        fill = "Conference"
   ) +
-  theme_bw() + removeGridX() + scale_fill_viridis_d() + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
+  theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_1b)
 
@@ -144,7 +157,13 @@ chetty_plot_1c <- ggplot(dt_summary_oo_apply, aes(x = par_income_lab, y = mean_o
        fill = "Conference"
   ) +
   theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_1c)
 
@@ -160,7 +179,13 @@ chetty_plot_1d <- ggplot(dt_summary_in_apply, aes(x = par_income_lab, y = mean_i
        fill = "Conference"
   ) +
   theme_minimal() + removeGridX() + scale_fill_viridis_d() + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 3.9, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_1d)
 
@@ -176,7 +201,13 @@ chetty_plot_school_out <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_income_
        fill = "University"
   ) +
   theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 6.03, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 6.03, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_school_out)
 
@@ -188,7 +219,13 @@ chetty_plot_school_in <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_income_l
        fill = "University"
   ) +
   theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 6.03, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 6.03, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_school_in)
 
@@ -201,7 +238,13 @@ chetty_plot_school_out_app <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_inc
        fill = "University"
   ) +
   theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 4.24, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 4.24, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_school_out_app)
 
@@ -213,7 +256,13 @@ chetty_plot_school_in_app <- ggplot(dt_3b[Conference == "SEC"], aes(x = par_inco
        fill = "University"
   ) +
   theme_minimal() + removeGridX() + scale_fill_brewer(palette = 'Paired') + 
-  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 4.11, alpha = 0, size = 1, color = "red")
+  annotate("rect", xmin = 6.49, xmax = 12.52, ymin = 0, ymax = 4.11, alpha = 0, size = 1, color = "red") +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(chetty_plot_school_in_app)
 
@@ -293,6 +342,7 @@ feols(rel_attend_oostate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov =
 feols(rel_attend_oostate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 
 mean(merged_app_chetty_dt[,rel_attend_oostate],na.rm = T)
+mean(merged_app_chetty_dt[,rel_apply_oostate],na.rm = T)
 
 feols(rel_apply_oostate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 feols(rel_apply_oostate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
@@ -302,6 +352,8 @@ feols(rel_apply_oostate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = 
 feols(rel_attend_instate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 feols(rel_attend_instate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 
+mean(merged_app_chetty_dt[,rel_attend_instate],na.rm = T)
+mean(merged_app_chetty_dt[,rel_apply_instate],na.rm = T)
 
 feols(rel_apply_instate ~ avgAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)
 feols(rel_apply_instate ~ LogAppPerStudent, data = merged_app_chetty_dt, vcov = ~State)

@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 3-7-25
+## Last Modified: 3-18-26
 
 ## file use: process alabama data (all commencements 2006-2024)
 # and merge commencement data with Revelio data
@@ -303,12 +303,18 @@ for_plot_all_years_dt[, Origin := factor(Origin, levels = c("In-State", "Out-of-
 ### i. bar plot 
 
 bar_plot <- ggplot(for_plot_all_years_dt, aes(x = Year, y = Share, group = Origin, fill = Origin)) + 
-  geom_bar(stat = "identity", position = "dodge", color = 'black', alpha = 0.8) + theme_bw() + scale_fill_viridis_d() + removeGridX() + 
+  geom_bar(stat = "identity", position = "dodge", color = 'black', alpha = 0.8) + theme_minimal() + scale_fill_viridis_d() + removeGridX() + 
   ylim(0,100) + ylab("% of Undergraduate Degree Recipients") +  xlim(2005.3,2023.6) + 
   theme(
     legend.position = "bottom",
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
-    text = element_text(size = 12)) 
+    text = element_text(size = 12)) + 
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 
 print(bar_plot)
@@ -329,12 +335,18 @@ for_area_plot_dt[, RelativeTo2006 := fcase(
 for_area_plot_dt[, Origin := factor(Origin, levels = c( "International","Out-of-State", "In-State"))]
 
 area_plot <- ggplot(for_area_plot_dt[Year <= 2024], aes(x = Year, y = RelativeTo2006, group = Origin, fill = Origin)) + 
-  geom_area(alpha = 0.8) + theme_bw() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
+  geom_area(alpha = 0.8) + theme_minimal() + scale_fill_manual(values = c("#FDE725FF", "#21908CFF","#440154FF")) + removeGridX() + 
   ylab("Degree Recipients (Relative to 2006)") + xlim(2006,2024) + 
   theme(
     legend.position = "bottom",
     legend.background = element_rect(color = "black", linetype = "solid", linewidth = 0.25),
-    text = element_text(size = 12)) 
+    text = element_text(size = 12))  + 
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 print(area_plot)
 
@@ -395,7 +407,7 @@ slope_text <- paste("Slope:", round(slope,2))
 ### ii. Produce Figure 3 (06 vs 24 shares)
 
 shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares24)) + 
-  geom_point(color = "#FDE725FF", size = 3, alpha = 0.8) + theme_bw() +
+  geom_point(color = "#FDE725FF", size = 3, alpha = 0.8) + theme_minimal() +
   geom_abline(slope = 1, intercept = 0, color = "#440154FF", linetype = "dashed", linewidth = 1) + 
   geom_smooth(method = "lm", se = T, color = "#414487FF", linetype = "dashed") + 
   annotate("text", x = 2.1, y = 9, label = "IL", hjust = 1.1, vjust = 2, size = 4,
@@ -410,7 +422,13 @@ shares_plot <- ggplot(combined_shares_for_plot_dt, aes(x = Shares06, y = Shares2
            color = "#21908CFF") + 
   annotate("text", x = 0.8, y = 5.4, label = "NJ", hjust = 1.1, vjust = 2, size = 4,
            color = "#21908CFF") +
-  labs(y = "2024 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25) 
+  labs(y = "2024 Share of Out-of-State Students (%)", x = "2006 Share of Out-of-State Students (%)") + ylim(0,15) + xlim(0,25) + 
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
 
 slope_val <- coef(lm_fit)[2]
 
