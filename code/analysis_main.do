@@ -38,3 +38,10 @@ esttab mat(vcov4) using vcov_mod4.csv, replace mlab(none)
 cmclogit choice home_state_oos home_state_ins o_share_oos o_share_ins i.t_AL_oos i.t_AL_ins ur net_rate if grad_y != 2020, vce(cluster o_state)
 matrix vcov5 = e(V)
 esttab mat(vcov5) using vcov_mod5.csv, replace mlab(none)
+
+* Heterogeneity
+
+* By major
+cmclogit choice home_state_oos home_state_ins o_share_oos_bus o_share_oos_mkt o_share_oos_fin o_share_oos_eng o_share_oos_acc o_share_oos_ed o_share_oos_nurse o_share_oos_econ o_share_oos_stem o_share_oos_other o_share_ins_bus o_share_ins_mkt o_share_ins_fin o_share_ins_eng o_share_ins_acc o_share_ins_ed o_share_ins_nurse o_share_ins_econ o_share_ins_stem o_share_ins_other i.t_AL_oos i.t_AL_ins, vce(cluster o_state)
+matrix vcov6 = e(V)
+esttab mat(vcov6) using vcov_mod4_major.csv, replace mlab(none)

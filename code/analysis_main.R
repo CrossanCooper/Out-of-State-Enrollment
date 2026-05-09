@@ -166,6 +166,65 @@ share_ins <- share_ins %>%
   # Get difference in log shares (relative to outside good)
   mutate(diff_log_d_share = log_d_share - log_al_share)
 
+# Save student- and destination-level datasets for use in GruMPS estimator
+
+# Student data (minimal set of required variables)
+students <- join %>%
+  ungroup() %>%
+  select(o_state, d_state, grad_y) %>%
+  # Define out-of-state indicator
+  # Define market variable
+  mutate(oos = o_state != 'Alabama',
+         market = grad_y) %>%
+  # Make OOS-specific origin-state variables (for use in interactions)
+  mutate(o_state_oos = if_else(oos, o_state, 'None'),
+         o_state_ins = if_else(!oos, o_state, 'None')) %>%
+  # Rename variables
+  rename(choice = d_state) %>%
+  # Remove cases where selectivity IV is missing
+  left_join(select(rename(iv, choice = state), c('choice', 'grad_y', 'adm_rate'))) %>%
+  filter(!is.na(adm_rate))
+
+# Destination data (minimal set of required variables)
+destinations <- shares %>%
+  ungroup() %>%
+  select(state, o_share, ur, net_rate, grad_y) %>%
+  # Define market and product variable
+  mutate(market = grad_y,
+         product = state,
+         # Also get t_AL
+         t_AL = grad_y - 2006) %>%
+  # Remove outside-good Alabama
+  filter(product != 'Alabama')
+
+# Or could get destination data from student-level data
+destinations <- join %>%
+  ungroup() %>%
+  select(d_state, grad_y) %>%
+  rename(state = d_state) %>%
+  distinct() %>%
+  # Attach origin shares
+  left_join(select(shares, c('grad_y', 'state', 'o_share', 'ur', 'net_rate'))) %>%
+  # Attach selectivity IV
+  left_join(select(iv, c('state', 'grad_y', 'adm_rate'))) %>%
+  # Define market and product variable
+  mutate(market = grad_y,
+         product = state,
+         # Also get t_AL
+         t_AL = grad_y - 2006,
+         # And impute zero origin share where necessary
+         o_share = if_else(is.na(o_share), 0, o_share)) %>%
+  # Remove outside-good Alabama
+  filter(product != 'Alabama') %>%
+  # Remove missing flagship selectivities
+  filter(!is.na(adm_rate))
+
+# Save for use in Julia
+write.csv(students, paste0(pathHome, 'data/students.csv'), row.names = F)
+write.csv(destinations, paste0(pathHome, 'data/destinations.csv'), row.names = F)
+
+# Also get honors/non-honors data
+
 # Get in-state student shares, split by honors status
 share_hon <- join %>%
   mutate(hon = Honors != 'No') %>%
@@ -198,6 +257,38 @@ share_hon <- share_hon %>%
   filter(d_state != 'Alabama') %>%
   # Get difference in log shares (relative to outside good)
   mutate(diff_log_d_share = log_d_share - log_al_share)
+
+# Get earnings of UA graduates
+majors <- dest %>%
+  mutate(rel_y = grad_y - 2023,
+         oos = first_state != 'Alabama',
+         field = case_when(field %in% c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering') ~ field,
+                           field %in% c('Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine') ~ 'Other STEM',
+                           !(field %in% c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering', 'Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')) ~ 'All other majors'))
+
+# Average total earnings by field, correcting for wage growth and an in-state penalty
+lm(total_compensation ~ 0 + factor(field) + rel_y + oos, data = majors %>% filter(grad_y >= 2015)) %>%
+  summary(robust = T)
+# Here I'm using the "total compensation" variable -- could also use salary
+
+# Get major distributions of UA graduates
+majors %>%
+  group_by(oos) %>%
+  mutate(N = n()) %>%
+  group_by(oos, field) %>%
+  summarize(prop = n() / mean(N))
+ggplot(majors, aes(x = field, fill = oos)) +
+  geom_histogram(stat = 'count') +
+  facet_wrap(~ oos)
+
+# Use Commencement records
+comm %>%
+  filter(grad_y == 2023) %>%
+  mutate(oos = Origin.State != 'AL') %>%
+  mutate(field = case_when(Degree == 'Bachelors of Science in Commerce and Business Administration' ~ 'Business',
+                           Degree == '')) %>%
+  group_by(oos) %>%
+  summarize()
 
 # Attach ACS income data --------------------------------------------------------
 
@@ -449,7 +540,7 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
   # Remove 2024
   filter(grad_y < 2024) %>%
   # Restrict to necessary variables
-  select(user_id, alternative, o_state, d_state, grad_y) %>%
+  select(user_id, alternative, o_state, d_state, grad_y, field, f_prob) %>%
   # Generate indicator for whether the destination is your home state
   mutate(home_state = o_state == alternative,
          # Generate choice indicator
@@ -470,11 +561,39 @@ join_bal <- data.frame(user_id = rep(unique(join$user_id), n = length(unique(joi
          home_state_ins = home_state * !oos,
          o_share_oos = o_share * oos,
          o_share_ins = o_share * !oos) %>%
+  # Get major and gender interactions for heterogeneity
+  mutate(home_state_oos_bus = home_state_oos * (field %in% c('Business', 'Marketing', 'Finance')),
+         home_state_ins_bus = home_state_ins * (field == 'Business'),
+         home_state_ins_female = home_state_ins * (f_prob > 0.5),
+         o_share_oos_bus = o_share_oos * (field == 'Business'),
+         o_share_oos_nurse = o_share_oos * (field == 'Nursing'),
+         o_share_oos_eng = o_share_oos * (field == 'Engineering'),
+         o_share_oos_mkt = o_share_oos * (field == 'Marketing'),
+         o_share_oos_fin = o_share_oos * (field == 'Finance'),
+         o_share_oos_acc = o_share_oos * (field == 'Accounting'),
+         o_share_oos_ed = o_share_oos * (field == 'Education'),
+         o_share_oos_econ = o_share_oos * (field == 'Economics'),
+         o_share_oos_stem = o_share_oos * (field %in% c('Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')),
+         o_share_oos_other = o_share_oos * !(field %in% c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering', 'Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')),
+         o_share_ins_bus = o_share_ins * (field == 'Business'),
+         o_share_ins_nurse = o_share_ins * (field == 'Nursing'),
+         o_share_ins_eng = o_share_ins * (field == 'Engineering'),
+         o_share_ins_mkt = o_share_ins * (field == 'Marketing'),
+         o_share_ins_fin = o_share_ins * (field == 'Finance'),
+         o_share_ins_acc = o_share_ins * (field == 'Accounting'),
+         o_share_ins_ed = o_share_ins * (field == 'Education'),
+         o_share_ins_econ = o_share_ins * (field == 'Economics'),
+         o_share_ins_stem = o_share_ins * (field %in% c('Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')),
+         o_share_ins_other = o_share_ins * !(field %in% c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering', 'Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')),
+         o_share_ins_female = o_share_ins * (f_prob > 0.5)) %>%
   # Get grad_y interacted with Alabama (for a trend in Alabama's mean utility)
   mutate(t_AL = (grad_y - 2006) * (alternative == 'Alabama')) %>%
   # Interact this with OOS
   mutate(t_AL_oos = t_AL * oos,
-         t_AL_ins = t_AL * !oos) %>%
+         t_AL_oos_bus = t_AL * (field %in% c('Business', 'Marketing', 'Finance')),
+         t_AL_ins = t_AL * !oos,
+         t_AL_ins_bus = t_AL * (field %in% c('Business', 'Marketing', 'Finance')),
+         t_AL_ins_female = t_AL * (f_prob > 0.5)) %>%
   # Arrange dataframe
   arrange(user_id, alternative)
 
@@ -551,6 +670,15 @@ mod3het <- mlogit(choice ~ home_state_oos + home_state_ins_poor + home_state_ins
 # Multinomial logit, heterogeneity and cohort effects on Alabama utilities
 mod4het <- mlogit(choice ~ home_state_oos + home_state_ins_poor + home_state_ins_rich + o_share_oos + o_share_ins_poor + o_share_ins_rich + t_AL_oos + t_AL_ins_poor + t_AL_ins_rich, data = join_bal_acs %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins_poor = factor(t_AL_ins_poor), t_AL_ins_rich = factor(t_AL_ins_rich)))
 
+# Now split in-state students by gender
+mod4_gender <- mlogit(choice ~ home_state_oos + home_state_ins + home_state_ins_female + home_state_ins_female + o_share_oos + o_share_ins + o_share_ins_female + t_AL_oos + t_AL_ins + t_AL_ins_female, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_ins = factor(t_AL_ins), t_AL_ins_female = factor(t_AL_ins_female)))
+
+# Now split in-state students by major
+mod4_major <- mlogit(choice ~ home_state_oos + home_state_oos_bus + home_state_ins + home_state_ins_bus + o_share_oos_bus + o_share_oos_other + o_share_ins_bus + o_share_ins_other + o_share_ins_nurse + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_oos_bus = factor(t_AL_oos_bus), t_AL_ins = factor(t_AL_ins), t_AL_ins_bus = factor(t_AL_ins_bus)))
+
+# With more granular major groupings
+mod4_major <- mlogit(choice ~ home_state_oos + home_state_ins + o_share_oos_bus + o_share_oos_mkt + o_share_oos_fin + o_share_oos_eng + o_share_oos_acc + o_share_oos_ed + o_share_oos_nurse + o_share_oos_econ + o_share_oos_stem + o_share_oos_other + o_share_ins_bus + o_share_ins_mkt + o_share_ins_fin + o_share_ins_eng + o_share_ins_acc + o_share_ins_ed + o_share_ins_nurse + o_share_ins_econ + o_share_ins_stem + o_share_ins_other + t_AL_oos + t_AL_ins, data = join_bal %>% mutate(t_AL_oos = factor(t_AL_oos), t_AL_oos_bus = factor(t_AL_oos_bus), t_AL_ins = factor(t_AL_ins), t_AL_ins_bus = factor(t_AL_ins_bus)))
+
 # Get robust SEs
 se0 <- sqrt(diag(vcovCL(mod0, type = 'HC1')))
 se1 <- sqrt(diag(vcovCL(mod1, type = 'HC1')))
@@ -569,6 +697,7 @@ vcov2 <- read.csv(paste0(pathHome, 'data/vcov_mod2.csv'))
 vcov3 <- read.csv(paste0(pathHome, 'data/vcov_mod3.csv'))
 vcov4 <- read.csv(paste0(pathHome, 'data/vcov_mod4.csv'))
 vcov5 <- read.csv(paste0(pathHome, 'data/vcov_mod5.csv'))
+vcov4_major <- read.csv(paste0(pathHome, 'data/vcov_mod4_major.csv'))
 
 # Get function to clean Stata SEs
 clean_stata_se <- function(vcov, mod) {
@@ -615,6 +744,7 @@ vcov2 <- clean_stata_se(vcov2, mod2)
 vcov3 <- clean_stata_se(vcov3, mod3)
 vcov4 <- clean_stata_se(vcov4, mod4)
 vcov5 <- clean_stata_se(vcov5, mod5)
+vcov4_major <- clean_stata_se(vcov4_major, mod4_major)
 
 # Now can get SEs from diagonal and apply Delta method using these v-cov matrices
 se0 <- sqrt(diag(vcov0))
@@ -770,6 +900,98 @@ ame5_se <- sqrt(jac5 %*% vcovCL(mod5, type = 'HC1') %*% t(jac5))
 
 # Cluster-robust SE
 ame5_se_cl <- sqrt(jac5 %*% vcov5 %*% t(jac5))
+
+# Heterogeneity by major
+
+# Initialize AME dataframe
+ame_by_major <- data.frame(major = rep(c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering', 'STEM', 'Other'), 2),
+                           abbrev = rep(c('bus', 'mkt', 'fin', 'nurse', 'econ', 'ed', 'acc', 'eng', 'stem', 'other'), 2),
+                           oos = c(rep(F, 10), rep(T, 10)),
+                           estimate = NA,
+                           se = NA)
+
+# Loop through major X in-/out-of-state combinations
+for (i in 1:nrow(ame_by_major)) {
+  
+  # Get dataframe for prediction
+  if (ame_by_major$oos[i] == T) {
+    
+    # For out-of-state students
+    pred <- join %>%
+      # Filter to out-of-state students
+      # Filter to the major
+      filter(o_state != 'Alabama' & case_when(ame_by_major$major[i] == 'STEM' ~ field %in% c('Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine'),
+                                              ame_by_major$major[i] == 'Other' ~ !(field %in% c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering', 'Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')),
+                                              .default = field == ame_by_major$major[i])) %>%
+      # Get each cohort's weight for average of marginal effects
+      group_by(grad_y, o_state) %>%
+      mutate(N = n()) %>%
+      ungroup() %>%
+      mutate(pred_weight = N / n()) %>%
+      # Get a single representative from each cohort
+      group_by(grad_y, o_state) %>%
+      filter(row_number() == 1) %>%
+      select(user_id, grad_y, o_state, pred_weight)
+    
+  } else {
+    
+    # For in-state students
+    pred <- join %>%
+      # Filter to in-state students
+      # Filter to the major
+      filter(o_state == 'Alabama' & case_when(ame_by_major$major[i] == 'STEM' ~ field %in% c('Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine'),
+                                              ame_by_major$major[i] == 'Other' ~ !(field %in% c('Business', 'Marketing', 'Finance', 'Nursing', 'Economics', 'Education', 'Accounting', 'Engineering', 'Biology', 'Mathematics', 'Chemistry', 'Statistics', 'Physics', 'Medicine')),
+                                              .default = field == ame_by_major$major[i])) %>%
+      # Get each cohort's weight for average of marginal effects
+      group_by(grad_y) %>%
+      mutate(N = n()) %>%
+      ungroup() %>%
+      mutate(pred_weight = N / n()) %>%
+      # Get a single representative from each cohort
+      group_by(grad_y) %>%
+      filter(row_number() == 1) %>%
+      select(user_id, grad_y, pred_weight)
+    
+  }
+  
+  # Get dataframe for prediction (works for models with cohort FE)
+  pred_bal <- join_bal %>%
+    mutate(t_AL_oos = factor(t_AL_oos),
+           t_AL_ins = factor(t_AL_ins)) %>%
+    filter(user_id %in% pred$user_id)
+  
+  # Function giving average marginal effect of 1pp increase in OOS share in terms of model coefficients
+  ame <- function(coefs, x, mod) {
+    
+    # Replace model coefficients with coefs
+    mod$coefficients <- coefs
+    
+    # Compute AME (explicit formula from derivative of Pr(j) wrt d_{k})
+    pred$pred_weight %*% t(weights$pct %*% t(-mod$coefficients[x] * predict(mod, pred_bal)[, 'Alabama'] * predict(mod, pred_bal)[, weights$o_state]))
+    
+  }
+  
+  # Point estimate
+  ame_by_major$estimate[i] <- ame(mod4_major$coefficients, x = paste0('o_share_', if_else(ame_by_major$oos[i] == T, 'oos_', 'ins_'), ame_by_major$abbrev[i]), mod = mod4_major)
+  
+  # Get Jacobian
+  jac4 <- jacobian(function(coefs) {ame(coefs, paste0('o_share_', if_else(ame_by_major$oos[i] == T, 'oos_', 'ins_'), ame_by_major$abbrev[i]), mod = mod4_major)}, mod4_major$coefficients)
+  
+  # Cluster-robust SE
+  ame_by_major$se[i] <- sqrt(jac4 %*% vcov4_major %*% t(jac4))
+  
+  # Tracker
+  print(paste0(100 * i / 20, '% done'))
+  
+}
+
+# Multiply by 100
+ame_by_major <- ame_by_major %>%
+  mutate(estimate = 100 * estimate,
+         se = 100 * se)
+
+# Manually create table of AMEs by major
+stargazer(ame_by_major, summary = F)
 
 # Save data for use in Stata
 write_dta(join_bal, paste0(pathHome, 'data/join_bal.dta'))
@@ -947,16 +1169,16 @@ for (i in 1:nrow(cf_probs)) {
 # Plot
 # Note that here the simulated model exactly fits the data
 cf_probs %>%
-  mutate(cf = if_else(cf == 'no_OOS_growth', 'Fixed OOS share', 'Actual OOS share growth')) %>%
+  mutate(cf = if_else(cf == 'no_OOS_growth', 'Fixed OOS Shares', 'Actual OOS Shares')) %>%
   ggplot(aes(x = y, y = estimate, col = cf, fill = cf)) +
   geom_line(lwd = 1) +
+  geom_point() +
   # Add 95% CIs
-  geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, col = NA) +
-  scale_color_manual(values = c('indianred3', 'steelblue3')) +
-  scale_fill_manual(values = c('indianred3', 'steelblue3')) +
-  labs(x = 'Graduation year',
-       title = 'Counterfactual estimates for in-state students',
-       y = 'Probability of staying in Alabama',
+  #geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, col = NA) +
+  scale_color_manual(values = c('#440154FF', '#FDE725FF')) +
+  #scale_fill_manual(values = c('indianred3', 'steelblue3')) +
+  labs(x = 'Graduation Year',
+       y = 'Pr(Stay in Alabama)',
        col = NULL) +
   guides(fill = 'none') +
   theme_classic() +
@@ -964,7 +1186,7 @@ cf_probs %>%
         legend.position = 'bottom',
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
-ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE_ribbon.png'), width = 6, height = 5)
+ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE.png'), width = 7, height = 5)
 
 # Now get flow exit with error bars
 
@@ -998,7 +1220,7 @@ for (i in 1:length(years)) {
   jac_temp <- jacobian(function(coefs) {flow_exit(coefs, y = exit_over_time$y[i])}, mod4$coefficients)
   
   # Get standard error via Delta method
-  exit_over_time$se[i] <- sqrt(jac_temp %*% vcovCL(mod4, type = 'HC1') %*% t(jac_temp))
+  exit_over_time$se[i] <- sqrt(jac_temp %*% vcov4 %*% t(jac_temp))
   
   # Tracker
   print(years[i])
@@ -1008,18 +1230,17 @@ for (i in 1:length(years)) {
 # Plot the number of students induced to leave in each cohort
 exit_over_time %>%
   ggplot(aes(x = y, y = estimate)) +
-  geom_line(col = 'indianred3', lwd = 1) +
-  geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, fill = 'indianred3') +
-  labs(x = 'Graduation year',
-       title = 'Counterfactual estimates for in-state students',
-       y = 'Flow # induced to leave Alabama',
+  geom_line(col = '#440154FF', lwd = 1) +
+  geom_ribbon(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se), alpha = 0.2, fill = '#440154FF') +
+  labs(x = 'Graduation Year',
+       y = 'Flow # Induced to Leave Alabama',
        col = NULL) +
   theme_classic() +
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
         legend.position = 'bottom',
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
-ggsave(paste0(pathFigures, 'analysis_main/flow_exit.png'), width = 6, height = 5)
+ggsave(paste0(pathFigures, 'analysis_main/flow_exit.png'), width = 5.5, height = 4.5)
 
 # Get cumulative number of students induced to leave
 
@@ -1063,15 +1284,76 @@ for (i in 1:length(years)) {
 # Plot the total number of students induced to leave over time
 exit_over_time %>%
   ggplot(aes(x = y, y = estimate_cum)) +
-  geom_line(col = 'indianred3', lwd = 1) +
-  geom_ribbon(aes(ymin = estimate_cum - 1.96*se_cum, ymax = estimate_cum + 1.96*se_cum), alpha = 0.2, fill = 'indianred3') +
-  labs(x = 'Year',
-       title = 'Counterfactual estimates for in-state students',
-       y = 'Total # induced to leave Alabama since 2006',
+  geom_line(col = '#440154FF', lwd = 1) +
+  geom_ribbon(aes(ymin = estimate_cum - 1.96*se_cum, ymax = estimate_cum + 1.96*se_cum), alpha = 0.2, fill = '#440154FF') +
+  labs(x = 'Graduation Year',
+       y = 'Total # Induced to Leave Alabama Since 2006',
        col = NULL) +
   theme_classic() +
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
         legend.position = 'bottom',
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
-ggsave(paste0(pathFigures, 'analysis_main/total_exit.png'), width = 5, height = 4.5)
+ggsave(paste0(pathFigures, 'analysis_main/total_exit.png'), width = 5.5, height = 4.5)
+
+# Net migration -----------------------------------------------------------------
+
+# Get counterfactual OOS student counts assuming OOS share fixed at 2006 level
+# (but total enrollment still grew, with OOS student growth replaced 1-for-1 by
+# in-state students)
+
+# Get 2006 total OOS enrollment share
+oos_share_2006 <- sum(o_share_static) / 100
+# Or use the IPEDS data
+oos_share_2006 <- sum(ipeds_shares$N_origin[ipeds_shares$grad_y == 2006 & ipeds_shares$state != 'Alabama']) / sum(ipeds_shares$N_origin[ipeds_shares$grad_y == 2006])
+# Get total first-time first-year enrollment, 2006-2023
+tot_enroll <- ipeds_shares %>%
+  group_by(grad_y) %>%
+  summarize(N = sum(N_origin)) %>%
+  filter(grad_y %in% 2006:2023)
+# Counterfactual OOS student counts
+cf_oos_enroll <- oos_share_2006 * tot_enroll$N
+
+# Get actual OOS student counts, 2006-2023
+true_oos_enroll <- ipeds_shares %>%
+  filter(state != 'Alabama') %>%
+  group_by(grad_y) %>%
+  summarize(N = sum(N_origin)) %>%
+  filter(grad_y %in% 2006:2023) %>%
+  pull(N)
+
+# OOS student inflows
+
+# Calibration from Groen (2004)
+sum(true_oos_enroll - cf_oos_enroll) * 0.10
+# Standard error
+sum(true_oos_enroll - cf_oos_enroll) * 0.016
+
+# Upper bound, assuming that no OOS students would have migrated to Alabama, had
+# they not enrolled
+# This assumes monotonicity, that attending UA doesn't make you less likely to
+# reside in Alabama (so that everyone who leaves Alabama would have left still
+# had they not enrolled). In other words, we assume there are only compliers and
+# never-takers (no defiers or always-takers). This gives the largest possible in-
+# migration effect.
+# Overall OOS student in-migration rate:
+oos_in_rate <- mean(join$d_state[join$o_state != 'Alabama'] == 'Alabama')
+sum(true_oos_enroll - cf_oos_enroll) * oos_in_rate
+
+# Using Groen (2004) estimates, but assuming the effect scales proportionally
+# with the observed OOS staying rate (which was 0.15 in their study)
+effect_scaled <- 0.10 * (oos_in_rate / 0.15)
+sum(true_oos_enroll - cf_oos_enroll) * effect_scaled
+
+# Using Groen & White (2004) estimates of the p_{nn} potential outcome -- the
+# counterfactual in-migration rate, had these students not enrolled
+effect_hybrid <- oos_in_rate - 0.05
+sum(true_oos_enroll - cf_oos_enroll) * effect_hybrid
+
+# In-state student outflows
+
+# Predicted total outflows from TWFE LPM
+sum(true_oos_enroll - cf_oos_enroll) * 0.091
+
+# Predicted total outflows from location-choice model
+tot_leaving(mod4$coefficients, mod4)
