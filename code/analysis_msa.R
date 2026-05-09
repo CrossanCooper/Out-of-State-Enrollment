@@ -773,10 +773,7 @@ ame <- function(coefs, x, mod) {
 ame(mod8$coefficients, x = 'o_share_ins', mod = mod8)
 ame(mod8$coefficients, x = 'o_share_other_ins', mod = mod8)
 
-# This takes ages to run -- are all coefficients needed in the AME function?
-# I could exclude the ones that apply to OOS students, but the main dimensionality
-# is the fixed effects, which we need.
-# Alternatively, I could try finding the analytic gradient...
+# Get Jacobian
 jac8 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod8)}, mod8$coefficients)
 jac8_other <- jacobian(function(coefs) {ame(coefs, 'o_share_other_ins', mod = mod8)}, mod8$coefficients)
 
@@ -787,6 +784,47 @@ ame8_se_other <- sqrt(jac8_other %*% vcovCL(mod8, type = 'HC1') %*% t(jac8_other
 # Cluster-robust standard errors
 ame8_se_cl <- sqrt(jac8 %*% vcov8 %*% t(jac8))
 ame8_se_other_cl <- sqrt(jac8_other %*% vcov8 %*% t(jac8_other))
+
+# Get dataframe for prediction
+# This is for the model with non-parametric trends that omits the Covid year
+pred_bal <- join_bal %>%
+  filter(grad_y != 2020) %>%
+  mutate(t_AL_oos = factor(t_AL_oos),
+         t_AL_ins = factor(t_AL_ins)) %>%
+  filter(user_id %in% pred$user_id)
+
+# Reweight to account for missing 2020
+pred <- pred %>%
+  mutate(pred_weight = pred_weight / (1 - pred$pred_weight[pred$grad_y == 2020])) %>%
+  filter(grad_y != 2020)
+
+# Function giving average marginal effect of 1pp increase in OOS share in terms of
+# model coefficients; x can be 'o_share_ins' or 'o_share_other_ins'
+ame <- function(coefs, x, mod) {
+  
+  # Replace its coefficients with coefs
+  mod$coefficients <- coefs
+  
+  # Compute AME
+  pred$pred_weight %*% t(unlist(weights[, if_else(x == 'o_share_ins', 'region_pp', 'other_region_pp')]) %*% t(-mod$coefficients[x] * rowSums(predict(mod, pred_bal)[, AL_metros]) * predict(mod, pred_bal)[, weights$region]))
+  
+}
+
+# Point estimate
+ame(mod9$coefficients, x = 'o_share_ins', mod = mod9)
+ame(mod9$coefficients, x = 'o_share_other_ins', mod = mod9)
+
+# Get Jacobian
+jac9 <- jacobian(function(coefs) {ame(coefs, 'o_share_ins', mod = mod9)}, mod9$coefficients)
+jac9_other <- jacobian(function(coefs) {ame(coefs, 'o_share_other_ins', mod = mod9)}, mod9$coefficients)
+
+# Standard error via Delta method
+ame9_se <- sqrt(jac9 %*% vcovCL(mod9, type = 'HC1') %*% t(jac9))
+ame9_se_other <- sqrt(jac9_other %*% vcovCL(mod9, type = 'HC1') %*% t(jac9_other))
+
+# Cluster-robust standard errors
+ame9_se_cl <- sqrt(jac9 %*% vcov9 %*% t(jac9))
+ame9_se_other_cl <- sqrt(jac9_other %*% vcov9 %*% t(jac9_other))
 
 # Save panel for use in Stata
 write_dta(join_bal, paste0(pathHome, 'data/join_bal_msa.dta'))
