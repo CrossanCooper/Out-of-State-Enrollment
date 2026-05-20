@@ -17,6 +17,7 @@ source('C:/Users/ryanh/OneDrive/Documents/Grad School/Research/Out-of-State-Enro
 # Parameters --------------------------------------------------------------------
 
 tax_rate <- 0.05
+ua_fips <- 1
 standard_deduction <- 3000
 personal_exemption <- 1500
 federal_tax_deduction_rate <- 0.10
@@ -32,43 +33,49 @@ grad_rate <- 0.74
 # https://oira.ua.edu/factbooklegacy/reports/other-academic-information/first-time-full-time-undergraduate-cohort-retention-rates/
 enrollment_survival <- c(1, 0.86, 0.81, grad_rate)
 
-lambda <- 1
-lambda_values <- c(1, 2, 3)
 aid_year <- 2019
-ua_fips <- 1
-ef_res <- read.csv(paste0(pathHome, 'data/ipeds_fe/ef', aid_year, 'c.csv')) %>%
+fte_year <- 2019
+
+tuition <- read.csv(paste0(pathHome, 'data/ipeds_tuition/ic',
+                           aid_year, '_ay.csv')) %>%
   rename_with(toupper) %>%
   filter(UNITID == 100751)
-P_R <- read.csv(paste0(pathHome, 'data/ipeds_tuition/ic', aid_year, '_ay.csv')) %>%
-  rename_with(toupper) %>%
-  filter(UNITID == 100751) %>%
-  pull(TUITION2) %>%
-  as.numeric()
-P_O <- read.csv(paste0(pathHome, 'data/ipeds_tuition/ic', aid_year, '_ay.csv')) %>%
-  rename_with(toupper) %>%
-  filter(UNITID == 100751) %>%
-  pull(TUITION3) %>%
-  as.numeric()
-N_R <- 4 * ef_res$EFRES01[ef_res$LINE == ua_fips]
-N_O <- 4 * (ef_res$EFRES01[ef_res$LINE == 99] -
-              ef_res$EFRES01[ef_res$LINE == ua_fips] -
-              sum(ef_res$EFRES01[ef_res$LINE %in% c(90, 98)], na.rm = TRUE))
-fin <- read.csv(paste0(pathHome, 'data/ipeds_finance/f', substr(aid_year, 3, 4),
-                       substr(aid_year + 1, 3, 4), '_f1a_rv.csv')) %>%
+
+posted_oos_tuition <- as.numeric(tuition$TUITION3)
+required_fees <- if_else('FEE3' %in% names(tuition),
+                         as.numeric(tuition$FEE3),
+                         0)
+posted_oos_tuition_fees <- posted_oos_tuition + required_fees
+
+# The grant-aid estimates come from analysis_grant_aid.R's 2023-24 IPEDS
+# SFA tuition target with a 50/50 split of residual institutional tuition
+# grants after Alabama Advantage. To keep this fiscal file on its original
+# 2019 baseline, scale those grant estimates by the ratio of 2019 to
+# 2023-24 headline OOS tuition.
+posted_oos_tuition_2023 <- 32400
+tuition_scale_2019_from_2023 <- posted_oos_tuition / posted_oos_tuition_2023
+avg_oos_auto_merit_2023 <- 10295.094
+avg_oos_residual_tuition_grant_2023 <- 1385.984
+avg_oos_auto_merit <- avg_oos_auto_merit_2023 *
+  tuition_scale_2019_from_2023
+avg_oos_residual_tuition_grant <- avg_oos_residual_tuition_grant_2023 *
+  tuition_scale_2019_from_2023
+avg_oos_tuition_grant <-
+  avg_oos_auto_merit + avg_oos_residual_tuition_grant
+oos_net_tuition_fees <- posted_oos_tuition_fees - avg_oos_tuition_grant
+
+fin <- read.csv(paste0(pathHome, 'data/ipeds_finance/f',
+                       substr(aid_year, 3, 4),
+                       substr(aid_year + 1, 3, 4),
+                       '_f1a_rv.csv')) %>%
   rename_with(toupper) %>%
   filter(UNITID == 100751)
-A <- as.numeric(fin$F1E08)
-allocate_oos_grant <- function(lambda) {
-  G_R <- A / (N_R + lambda * N_O)
-  lambda * G_R
-}
-G_O <- allocate_oos_grant(lambda)
-oos_tuition <- P_O - G_O
+
 fte <- read_xlsx(paste0(pathHome, 'data/factbook/fte_by_college_in_out.xlsx')) %>%
   rename(origin = Origin, college = `By College/School`, y = STYEAR, fte = sum_fte) %>%
   mutate(y = as.numeric(y), fte = as.numeric(fte))
 average_cost <- (fin$F1C011 + fin$F1C051 + fin$F1C061) /
-  sum(fte$fte[fte$y == aid_year], na.rm = TRUE)
+  sum(fte$fte[fte$y == fte_year], na.rm = TRUE)
 
 # Major-specific inputs ---------------------------------------------------------
 
@@ -176,7 +183,7 @@ pull_effect_revenue <- tax_rate * pull_effect *
 
 net_migration_revenue <- push_effect + pull_effect_revenue
 
-annual_cost <- average_cost - oos_tuition
+annual_cost <- average_cost - oos_net_tuition_fees
 discounted_cost <- annual_cost * sum(enrollment_survival * discount_factor^(1:4))
 
 net_fiscal_effect <- net_migration_revenue - discounted_cost
@@ -201,7 +208,7 @@ fiscal_results <- data.frame(
     'Push effect',
     'Pull effect',
     'Net marginal revenue effect of migration',
-    'Annual cost',
+    'Annual cost net of OOS tuition/fees',
     'Total discounted cost',
     'Total marginal profit'
   ),
@@ -218,18 +225,41 @@ fiscal_results <- data.frame(
 
 print(fiscal_results)
 
-lambda_sensitivity <- data.frame(
-  lambda = lambda_values,
-  avg_oos_grant_aid = sapply(lambda_values, allocate_oos_grant)
-) %>%
-  mutate(net_oos_tuition = P_O - avg_oos_grant_aid,
-         annual_cost = average_cost - net_oos_tuition,
-         total_discounted_cost = annual_cost *
-           sum(enrollment_survival * discount_factor^(1:4)),
-         net_migration_revenue = net_migration_revenue,
-         total_marginal_profit = net_migration_revenue - total_discounted_cost)
+grant_aid_inputs <- data.frame(
+  component = c(
+    'Posted OOS tuition, 2019',
+    'Required fees, 2019',
+    'Posted OOS tuition and fees, 2019',
+    'Posted OOS tuition, 2023 grant-aid baseline',
+    'Grant-aid scale factor, 2019/2023',
+    'Average OOS automatic merit aid, 2023 estimate',
+    'Average OOS residual tuition grants, 2023 estimate',
+    'Average OOS automatic merit aid, scaled to 2019',
+    'Average OOS residual tuition grants, scaled to 2019',
+    'Average OOS tuition grants, scaled to 2019',
+    'Average OOS net tuition and fees, 2019',
+    'Average core cost per FTE, 2019',
+    'Average annual margin before migration effects, 2019'
+  ),
+  value = c(
+    posted_oos_tuition,
+    required_fees,
+    posted_oos_tuition_fees,
+    posted_oos_tuition_2023,
+    tuition_scale_2019_from_2023,
+    avg_oos_auto_merit_2023,
+    avg_oos_residual_tuition_grant_2023,
+    avg_oos_auto_merit,
+    avg_oos_residual_tuition_grant,
+    avg_oos_tuition_grant,
+    oos_net_tuition_fees,
+    average_cost,
+    oos_net_tuition_fees - average_cost
+  ),
+  stringsAsFactors = FALSE
+)
 
-print(lambda_sensitivity)
+print(grant_aid_inputs)
 
 # Internal rate of return -------------------------------------------------------
 
@@ -263,7 +293,7 @@ annual_migration_revenue <- postgrad_survival * tax_rate * (
 )
 
 base_cash_flows <- c(
-  enrollment_survival * (oos_tuition - average_cost),
+  enrollment_survival * (oos_net_tuition_fees - average_cost),
   annual_migration_revenue
 )
 
@@ -310,34 +340,100 @@ irr_results$note <- ifelse(
 
 print(irr_results)
 
-lambda_irr_sensitivity <- lapply(lambda_values, function(lambda_alt) {
+# PDV and IRR sensitivity by ACT score ------------------------------------------
+
+award_oos_act <- function(act, gpa = 3.50) {
   
-  grant_alt <- allocate_oos_grant(lambda_alt)
-  net_oos_tuition_alt <- P_O - grant_alt
+  # Mirrors the 2023 OOS automatic merit schedule used in
+  # analysis_grant_aid.R, then scales dollar amounts to the 2019
+  # headline tuition level.
+  aid <- numeric(length(act))
+  
+  gpa_300_349 <- gpa >= 3.00 & gpa < 3.50
+  gpa_350_up <- gpa >= 3.50
+  
+  aid[gpa_300_349 & act >= 27 & act < 28] <- 6000
+  aid[gpa_300_349 & act >= 28 & act < 30] <- 8000
+  aid[gpa_300_349 & act >= 30] <- 15000
+  
+  aid[gpa_350_up & act >= 25 & act < 27] <- 6000
+  aid[gpa_350_up & act >= 27 & act < 28] <- 8000
+  aid[gpa_350_up & act >= 28 & act < 29] <- 10000
+  aid[gpa_350_up & act >= 29 & act < 30] <- 15000
+  aid[gpa_350_up & act >= 30 & act < 32] <- 24000
+  aid[gpa_350_up & act >= 32] <- 28000
+  
+  aid * tuition_scale_2019_from_2023
+  
+}
+
+oos_net_tuition_fees_by_act <- function(act, gpa = 3.50) {
+  pmax(
+    posted_oos_tuition_fees -
+      award_oos_act(act, gpa = gpa) -
+      avg_oos_residual_tuition_grant,
+    0
+  )
+}
+
+act_grid <- 18:36
+
+pdv_by_act <- data.frame(act = act_grid) %>%
+  mutate(
+    net_oos_tuition_fees = oos_net_tuition_fees_by_act(act),
+    discounted_tuition_margin =
+      (net_oos_tuition_fees - average_cost) *
+      sum(enrollment_survival * discount_factor^(1:4)),
+    state_pdv = net_migration_revenue + discounted_tuition_margin
+  )
+
+print(pdv_by_act)
+
+pdv_plot <- ggplot(pdv_by_act, aes(x = act, y = state_pdv)) +
+  geom_hline(yintercept = 0, color = 'gray40') +
+  geom_line(color = '#440154FF', linewidth = 1) +
+  scale_x_continuous(breaks = seq(18, 36, by = 3)) +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(x = 'ACT score',
+       y = 'PDV to state, zero recruitment cost') +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+
+ggsave(paste0(pathFigures, 'pdv_by_act_score.png'), width = 6.5, height = 5)
+
+act_irr_scenarios <- data.frame(
+  scenario = c('ACT <= 24', 'ACT 26', 'ACT 28', 'ACT 30'),
+  act = c(18, 26, 28, 30),
+  stringsAsFactors = FALSE
+)
+
+irr_cash_flow_summaries <- lapply(seq_len(nrow(act_irr_scenarios)), function(i) {
+  
+  net_oos_tuition_fees_alt <-
+    oos_net_tuition_fees_by_act(act_irr_scenarios$act[i])
   cash_flows_alt <- c(
-    enrollment_survival * (net_oos_tuition_alt - average_cost),
+    enrollment_survival * (net_oos_tuition_fees_alt - average_cost),
     annual_migration_revenue
   )
   
   data.frame(
-    lambda = lambda_alt,
-    recruiting_cost = recruiting_costs,
-    irr = sapply(
-      recruiting_costs,
-      function(cost) irr(c(-cost, cash_flows_alt))
-    )
+    scenario = act_irr_scenarios$scenario[i],
+    act = act_irr_scenarios$act[i],
+    net_oos_tuition_fees = net_oos_tuition_fees_alt,
+    zero_irr_recruiting_cost = sum(cash_flows_alt),
+    stringsAsFactors = FALSE
   )
   
 }) %>%
-  bind_rows() %>%
-  mutate(irr_percent = 100 * irr,
-         note = ifelse(is.na(irr), 'Undefined: no negative cash flow', ''))
+  bind_rows()
 
-print(lambda_irr_sensitivity)
-
-# Plot IRR sensitivity ----------------------------------------------------------
-
-max_plot_recruiting_cost <- 20000
+max_plot_recruiting_cost <- ceiling(
+  1.20 * max(irr_cash_flow_summaries$zero_irr_recruiting_cost[
+    irr_cash_flow_summaries$zero_irr_recruiting_cost > 0
+  ]) / 5000
+) * 5000
 
 plot_recruiting_costs <- seq(
   from = 1,
@@ -345,29 +441,54 @@ plot_recruiting_costs <- seq(
   length.out = 500
 )
 
-plot_irr <- sapply(
-  plot_recruiting_costs,
-  function(cost) irr(c(-cost, base_cash_flows))
-)
+irr_plot_data <- lapply(seq_len(nrow(act_irr_scenarios)), function(i) {
+  
+  net_oos_tuition_fees_alt <-
+    oos_net_tuition_fees_by_act(act_irr_scenarios$act[i])
+  cash_flows_alt <- c(
+    enrollment_survival * (net_oos_tuition_fees_alt - average_cost),
+    annual_migration_revenue
+  )
+  
+  data.frame(
+    scenario = act_irr_scenarios$scenario[i],
+    act = act_irr_scenarios$act[i],
+    net_oos_tuition_fees = net_oos_tuition_fees_alt,
+    recruiting_cost = plot_recruiting_costs,
+    irr_percent = 100 * sapply(
+      plot_recruiting_costs,
+      function(cost) irr(c(-cost, cash_flows_alt))
+    )
+  )
+  
+}) %>%
+  bind_rows() %>%
+  mutate(scenario = factor(scenario, levels = act_irr_scenarios$scenario))
 
-irr_plot_data <- data.frame(
-  recruiting_cost = plot_recruiting_costs,
-  irr_percent = 100 * plot_irr
-)
+min_plot_irr <- floor(min(irr_plot_data$irr_percent, na.rm = TRUE) / 5) * 5 - 3
 
-min_plot_irr <- floor(min(irr_plot_data$irr_percent, na.rm = TRUE) / 5) * 5
+print(irr_cash_flow_summaries)
 
-ggplot(irr_plot_data, aes(x = recruiting_cost, y = irr_percent)) +
+irr_plot <- ggplot(irr_plot_data,
+                   aes(x = recruiting_cost,
+                       y = irr_percent,
+                       color = scenario)) +
   geom_hline(yintercept = 0, color = 'gray40') +
-  geom_line(color = '#440154FF', linewidth = 1) +
+  geom_line(linewidth = 1) +
   coord_cartesian(xlim = c(0, max_plot_recruiting_cost),
                   ylim = c(min_plot_irr, 100),
                   expand = FALSE) +
   scale_x_continuous(breaks = seq(0, max_plot_recruiting_cost, by = 10000),
                      labels = function(x) x / 1000) +
   scale_y_continuous(breaks = seq(0, 100, by = 20), labels = function(x) paste0(x, '%')) +
-  labs(#title = 'IRR by Assumed Recruiting Cost',
-       x = "Recruitment cost per OOS student ($1000s)",
+  scale_color_manual(
+    values = c('ACT <= 24' = '#440154FF',
+               'ACT 26' = '#21908CFF',
+               'ACT 28' = '#FDE725FF',
+               'ACT 30' = 'grey50'),
+    name = 'ACT score'
+  ) +
+  labs(x = "Recruitment cost per OOS student ($1000s)",
        y = 'Internal rate of return') +
   theme_classic() +
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
@@ -375,154 +496,4 @@ ggplot(irr_plot_data, aes(x = recruiting_cost, y = irr_percent)) +
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
 
-ggsave(paste0(pathFigures, 'irr_by_recruiting_cost.png'), width = 5.5, height = 5)
-
-# OOS grant-aid estimates over time --------------------------------------------
-
-read_ipeds_tuition <- function(y) {
-  
-  if (y %in% 2009:2012) {
-    read_xlsx(paste0(pathHome, 'data/ipeds_tuition/ic', y, '_ay.xlsx'))
-  } else {
-    read.csv(paste0(pathHome, 'data/ipeds_tuition/ic', y, '_ay.csv'))
-  }
-  
-}
-
-aid_allocation_by_year <- lapply(2001:2019, function(y) {
-  
-  ef_y <- read.csv(paste0(pathHome, 'data/ipeds_fe/ef', y, 'c.csv')) %>%
-    rename_with(toupper) %>%
-    filter(UNITID == 100751)
-  
-  tuition_y <- read_ipeds_tuition(y) %>%
-    rename_with(toupper) %>%
-    filter(UNITID == 100751)
-  
-  fin_y <- read.csv(paste0(pathHome, 'data/ipeds_finance/f',
-                           substr(y, 3, 4), substr(y + 1, 3, 4),
-                           if_else(y <= 2002, '_f1a.csv', '_f1a_rv.csv'))) %>%
-    rename_with(toupper) %>%
-    filter(UNITID == 100751)
-  
-  N_R_y <- 4 * ef_y$EFRES01[ef_y$LINE == ua_fips]
-  N_O_y <- 4 * (ef_y$EFRES01[ef_y$LINE == 99] -
-                  ef_y$EFRES01[ef_y$LINE == ua_fips] -
-                  sum(ef_y$EFRES01[ef_y$LINE %in% c(90, 98)], na.rm = TRUE))
-  P_O_y <- as.numeric(tuition_y$TUITION3)
-  A_y <- as.numeric(fin_y$F1E08)
-  G_O_y <- sapply(lambda_values, function(lambda_alt) {
-    lambda_alt * A_y / (N_R_y + lambda_alt * N_O_y)
-  })
-  
-  data.frame(
-    y = y,
-    lambda = lambda_values,
-    N_R = N_R_y,
-    N_O = N_O_y,
-    posted_oos_tuition = P_O_y,
-    institutional_grant_aid = A_y,
-    avg_oos_grant_aid = G_O_y,
-    avg_oos_grant_aid_share = G_O_y / P_O_y
-  )
-  
-}) %>%
-  bind_rows()
-
-print(aid_allocation_by_year)
-
-# SHEF-calibrated OOS net tuition benchmark ------------------------------------
-
-### CAREFUL: It looks like SHEF actually only obtained an "estimate" from Alabama,
-### which seems to assume equal discounts for in- and out-of-state students...
-
-# SHEF estimates average net price after grants paid by all OOS students at
-# Alabama public four-year colleges as $23,151 in 2020. SHEF appears to include
-# graduate students; the IPEDS residence weights below use available undergraduate
-# residence counts, so treat this as a benchmark rather than the baseline.
-shef_oos_net_price <- 23151
-shef_year <- 2020
-ipeds_shef_year <- 2019
-
-al_public4 <- read.csv(paste0(pathHome, 'data/ipeds_ins/hd',
-                              ipeds_shef_year, '.csv')) %>%
-  rename_with(toupper) %>%
-  filter(STABBR == 'AL',
-         CONTROL == 1,
-         ICLEVEL == 1,
-         SECTOR == 1) %>%
-  select(UNITID, INSTNM)
-
-tuition_shef <- read_ipeds_tuition(ipeds_shef_year) %>%
-  rename_with(toupper) %>%
-  filter(UNITID %in% al_public4$UNITID) %>%
-  transmute(UNITID, posted_oos_tuition = as.numeric(TUITION3))
-
-ef_shef <- read.csv(paste0(pathHome, 'data/ipeds_fe/ef',
-                           ipeds_shef_year, 'c.csv')) %>%
-  rename_with(toupper) %>%
-  filter(UNITID %in% al_public4$UNITID)
-
-oos_counts_shef <- ef_shef %>%
-  group_by(UNITID) %>%
-  summarize(
-    total = sum(EFRES01[LINE == 99], na.rm = TRUE),
-    resident = sum(EFRES01[LINE == ua_fips], na.rm = TRUE),
-    foreign_or_unknown = sum(EFRES01[LINE %in% c(90, 98)], na.rm = TRUE),
-    oos_enrollment = total - resident - foreign_or_unknown,
-    .groups = 'drop'
-  )
-
-shef_calibration_institutions <- al_public4 %>%
-  left_join(tuition_shef, by = 'UNITID') %>%
-  left_join(oos_counts_shef, by = 'UNITID') %>%
-  filter(!is.na(posted_oos_tuition),
-         !is.na(oos_enrollment),
-         oos_enrollment > 0) %>%
-  mutate(weight = oos_enrollment / sum(oos_enrollment))
-
-weighted_posted_oos_tuition <- sum(shef_calibration_institutions$weight *
-                                     shef_calibration_institutions$posted_oos_tuition)
-common_oos_discount_rate <- 1 - shef_oos_net_price / weighted_posted_oos_tuition
-ua_posted_oos_tuition_shef <- shef_calibration_institutions$posted_oos_tuition[
-  shef_calibration_institutions$UNITID == 100751
-]
-
-shef_common_discount_summary <- data.frame(
-  shef_year = shef_year,
-  ipeds_year = ipeds_shef_year,
-  shef_oos_net_price = shef_oos_net_price,
-  weighted_posted_oos_tuition = weighted_posted_oos_tuition,
-  common_oos_discount_rate = common_oos_discount_rate,
-  ua_posted_oos_tuition = ua_posted_oos_tuition_shef,
-  ua_shef_net_price = ua_posted_oos_tuition_shef * (1 - common_oos_discount_rate),
-  ua_shef_grant_aid = ua_posted_oos_tuition_shef * common_oos_discount_rate
-)
-
-ua_discount_multipliers <- c(0.5, 0.75, 1, 1.25, 1.5, 2)
-
-shef_ua_discount_sensitivity <- lapply(ua_discount_multipliers, function(kappa_ua) {
-  
-  discount_denom <- sum(
-    shef_calibration_institutions$weight *
-      shef_calibration_institutions$posted_oos_tuition *
-      if_else(shef_calibration_institutions$UNITID == 100751, kappa_ua, 1)
-  )
-  other_discount_rate <- (weighted_posted_oos_tuition - shef_oos_net_price) /
-    discount_denom
-  ua_discount_rate <- kappa_ua * other_discount_rate
-  
-  data.frame(
-    ua_discount_multiplier = kappa_ua,
-    other_discount_rate = other_discount_rate,
-    ua_discount_rate = ua_discount_rate,
-    ua_shef_grant_aid = ua_posted_oos_tuition_shef * ua_discount_rate,
-    ua_shef_net_price = ua_posted_oos_tuition_shef * (1 - ua_discount_rate)
-  )
-  
-}) %>%
-  bind_rows()
-
-print(shef_calibration_institutions)
-print(shef_common_discount_summary)
-print(shef_ua_discount_sensitivity)
+ggsave(paste0(pathFigures, 'irr_by_act_score.png'), width = 6.5, height = 5)
