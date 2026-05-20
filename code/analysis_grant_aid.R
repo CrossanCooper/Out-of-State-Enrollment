@@ -124,6 +124,8 @@ B <- 2e6
 
 # Fit normal distribution from 25th and 75th percentiles.
 fit_normal_from_iqr <- function(q25, q75) {
+  q25 <- as.numeric(q25)
+  q75 <- as.numeric(q75)
   z75 <- qnorm(0.75)
   mu <- (q25 + q75) / 2
   sigma <- (q75 - q25) / (2 * z75)
@@ -160,6 +162,185 @@ shift_gpa_to_match_submitters <- function(gpa_dist, target_p_ge_35 = 0.84) {
   sigma <- gpa_dist$sigma
   mu_new <- 3.5 - qnorm(1 - target_p_ge_35) * sigma
   list(mu = mu_new, sigma = sigma)
+}
+
+score_dists_from_iqr <- function(score_iqr, test) {
+  list(
+    is = fit_normal_from_iqr(score_iqr$is[[test]]["q25"],
+                             score_iqr$is[[test]]["q75"]),
+    oos = fit_normal_from_iqr(score_iqr$oos[[test]]["q25"],
+                              score_iqr$oos[[test]]["q75"])
+  )
+}
+
+normal_mixture_cdf <- function(x, dists, weights) {
+  weights["is"] * pnorm(x, dists$is$mu, dists$is$sigma) +
+    weights["oos"] * pnorm(x, dists$oos$mu, dists$oos$sigma)
+}
+
+normal_mixture_quantile <- function(p, dists, weights) {
+  lower <- min(c(dists$is$mu - 8 * dists$is$sigma,
+                 dists$oos$mu - 8 * dists$oos$sigma))
+  upper <- max(c(dists$is$mu + 8 * dists$is$sigma,
+                 dists$oos$mu + 8 * dists$oos$sigma))
+  
+  uniroot(
+    function(x) normal_mixture_cdf(x, dists, weights) - p,
+    lower = lower,
+    upper = upper
+  )$root
+}
+
+normal_mixture_mean <- function(dists, weights) {
+  weights["is"] * dists$is$mu + weights["oos"] * dists$oos$mu
+}
+
+normal_mixture_band_share <- function(lower, upper, dists, weights) {
+  weights["is"] *
+    (pnorm(upper, dists$is$mu, dists$is$sigma) -
+       pnorm(lower, dists$is$mu, dists$is$sigma)) +
+    weights["oos"] *
+    (pnorm(upper, dists$oos$mu, dists$oos$sigma) -
+       pnorm(lower, dists$oos$mu, dists$oos$sigma))
+}
+
+normalize_band_shares <- function(bands) {
+  bands$share <- bands$share / sum(bands$share)
+  bands
+}
+
+summarize_score_mixture <- function(score_iqr,
+                                    test,
+                                    cds_percentiles,
+                                    cds_bands,
+                                    residency_weights,
+                                    model) {
+  dists <- score_dists_from_iqr(score_iqr, test)
+  bands <- normalize_band_shares(cds_bands)
+  
+  percentile_rows <- data.frame(
+    test = test,
+    model = model,
+    moment = c("q25", "q50", "q75", "mean"),
+    target = c(cds_percentiles["q25"],
+               cds_percentiles["q50"],
+               cds_percentiles["q75"],
+               cds_percentiles["mean"]),
+    fitted = c(
+      normal_mixture_quantile(0.25, dists, residency_weights),
+      normal_mixture_quantile(0.50, dists, residency_weights),
+      normal_mixture_quantile(0.75, dists, residency_weights),
+      normal_mixture_mean(dists, residency_weights)
+    )
+  )
+  
+  band_rows <- data.frame(
+    test = test,
+    model = model,
+    moment = paste0("band_", bands$band),
+    target = bands$share,
+    fitted = mapply(
+      normal_mixture_band_share,
+      bands$lower,
+      bands$upper,
+      MoreArgs = list(dists = dists, weights = residency_weights)
+    )
+  )
+  
+  bind_rows(percentile_rows, band_rows) %>%
+    mutate(diff = fitted - target)
+}
+
+fit_gap_preserving_iqr <- function(test,
+                                   cds_percentiles,
+                                   cds_bands,
+                                   residency_weights) {
+  
+  gap25 <- iqr$oos[[test]]["q25"] - iqr$is[[test]]["q25"]
+  gap75 <- iqr$oos[[test]]["q75"] - iqr$is[[test]]["q75"]
+  bands <- normalize_band_shares(cds_bands)
+  
+  score_scale <- if_else(test == "ACT", 1, 10)
+  lower_bound <- if_else(test == "ACT", 1, 400)
+  upper_bound <- if_else(test == "ACT", 36, 1600)
+  
+  make_trial_iqr <- function(par) {
+    trial <- iqr
+    trial$is[[test]] <- c(q25 = as.numeric(par[1]),
+                          q75 = as.numeric(par[2]))
+    trial$oos[[test]] <- c(q25 = as.numeric(par[1] + gap25),
+                           q75 = as.numeric(par[2] + gap75))
+    trial
+  }
+  
+  objective <- function(par) {
+    if (par[2] <= par[1] ||
+        par[1] < lower_bound ||
+        par[2] > upper_bound ||
+        par[1] + gap25 < lower_bound ||
+        par[2] + gap75 > upper_bound) {
+      return(1e9 + sum(par^2))
+    }
+    
+    loss <- tryCatch({
+      trial <- make_trial_iqr(par)
+      dists <- score_dists_from_iqr(trial, test)
+      
+      fitted_quantiles <- c(
+        q25 = normal_mixture_quantile(0.25, dists, residency_weights),
+        q50 = normal_mixture_quantile(0.50, dists, residency_weights),
+        q75 = normal_mixture_quantile(0.75, dists, residency_weights),
+        mean = normal_mixture_mean(dists, residency_weights)
+      )
+      fitted_quantiles <- setNames(
+        as.numeric(fitted_quantiles),
+        c("q25", "q50", "q75", "mean")
+      )
+      
+      fitted_bands <- mapply(
+        normal_mixture_band_share,
+        bands$lower,
+        bands$upper,
+        MoreArgs = list(dists = dists, weights = residency_weights)
+      )
+      
+      percentile_loss <- sum(
+        ((fitted_quantiles -
+            cds_percentiles[names(fitted_quantiles)]) / score_scale)^2
+      )
+      band_loss <- sum(((fitted_bands - bands$share) / 0.01)^2)
+      
+      percentile_loss + band_loss
+    }, error = function(e) {
+      1e9 + sum(par^2)
+    })
+    
+    if (!is.finite(loss)) {
+      loss <- 1e9 + sum(par^2)
+    }
+    
+    loss
+  }
+  
+  start <- c(
+    cds_percentiles["q25"] - residency_weights["oos"] * gap25,
+    cds_percentiles["q75"] - residency_weights["oos"] * gap75
+  )
+  
+  fit <- optim(
+    par = start,
+    fn = objective,
+    method = "L-BFGS-B",
+    lower = c(lower_bound, lower_bound),
+    upper = c(upper_bound, upper_bound)
+  )
+  
+  list(
+    fit = fit,
+    score_iqr = make_trial_iqr(fit$par),
+    gap25 = as.numeric(gap25),
+    gap75 = as.numeric(gap75)
+  )
 }
 
 # 2023 out-of-state automatic merit schedule from scholarship archive.
@@ -266,15 +447,18 @@ estimate_group <- function(group = c("is", "oos"),
                            p_submit_group,
                            rho = 0.6,
                            B = 2e6,
+                           score_iqr = iqr,
                            target_p_gpa_ge_35_submitters = 0.84) {
   
   group <- match.arg(group)
   
   # Fit test-score distributions from residency-specific IQRs
-  act_dist <- fit_normal_from_iqr(iqr[[group]]$ACT["q25"], iqr[[group]]$ACT["q75"])
-  sat_dist <- fit_normal_from_iqr(iqr[[group]]$SAT["q25"], iqr[[group]]$SAT["q75"])
+  act_dist <- fit_normal_from_iqr(score_iqr[[group]]$ACT["q25"],
+                                  score_iqr[[group]]$ACT["q75"])
+  sat_dist <- fit_normal_from_iqr(score_iqr[[group]]$SAT["q25"],
+                                  score_iqr[[group]]$SAT["q75"])
   
-  # Fit GPA distribution, then shift for score-submitters
+  # GPA remains fitted from the original residency-specific FAQ GPA IQRs.
   gpa_raw <- fit_normal_from_iqr(iqr[[group]]$GPA["q25"], iqr[[group]]$GPA["q75"])
   gpa_submitter <- shift_gpa_to_match_submitters(
     gpa_raw,
@@ -319,15 +503,110 @@ estimate_group <- function(group = c("is", "oos"),
 }
 
 # -----------------------------
-# 3. Baseline estimates
+# 3. Main score distribution: CDS gap-preserving normal mixtures
 # -----------------------------
+
+# CDS 2023-24 aggregate score levels appear more consistent with
+# the CDS financial-aid totals than the FAQ residency-specific levels.
+# However, the CDS aggregate ACT q25 = 22 is inconsistent with both
+# FAQ residency q25 values being strictly higher. The main specification
+# therefore fits aggregate ACT/SAT normal mixtures to CDS score targets
+# while preserving the FAQ in-state vs. OOS q25/q75 gaps.
+score_residency_weights <- c(
+  is = n_is / (n_is + n_oos),
+  oos = n_oos / (n_is + n_oos)
+)
+
+# CDS 2023-24 C9/C10 aggregate score targets for Fall 2023
+# first-year score-submitters. Rounded band percentages are normalized
+# before being used as fitting targets.
+cds_act_percentiles <- c(q25 = 22, q50 = 26, q75 = 30, mean = 26)
+cds_sat_percentiles <- c(q25 = 1120, q50 = 1230, q75 = 1370, mean = 1241)
+
+cds_act_bands <- data.frame(
+  band = c("30-36", "24-29", "18-23", "12-17", "6-11", "below_6"),
+  lower = c(29.5, 23.5, 17.5, 11.5, 5.5, -Inf),
+  upper = c(Inf, 29.5, 23.5, 17.5, 11.5, 5.5),
+  share = c(0.31, 0.35, 0.28, 0.05, 0.00, 0.00)
+)
+
+cds_sat_bands <- data.frame(
+  band = c("1400-1600", "1200-1399", "1000-1199",
+           "800-999", "600-799", "400-599"),
+  lower = c(1399.5, 1199.5, 999.5, 799.5, 599.5, -Inf),
+  upper = c(Inf, 1399.5, 1199.5, 999.5, 799.5, 599.5),
+  share = c(0.20, 0.40, 0.34, 0.06, 0.00, 0.00)
+)
+
+cds_gap_act_fit <- fit_gap_preserving_iqr(
+  "ACT",
+  cds_act_percentiles,
+  cds_act_bands,
+  score_residency_weights
+)
+
+cds_gap_sat_fit <- fit_gap_preserving_iqr(
+  "SAT",
+  cds_sat_percentiles,
+  cds_sat_bands,
+  score_residency_weights
+)
+
+cds_gap_iqr <- iqr
+cds_gap_iqr$is$ACT <- cds_gap_act_fit$score_iqr$is$ACT
+cds_gap_iqr$oos$ACT <- cds_gap_act_fit$score_iqr$oos$ACT
+cds_gap_iqr$is$SAT <- cds_gap_sat_fit$score_iqr$is$SAT
+cds_gap_iqr$oos$SAT <- cds_gap_sat_fit$score_iqr$oos$SAT
+
+cds_gap_fitted_iqrs <- bind_rows(
+  data.frame(test = "ACT", group = c("is", "oos"),
+             q25 = c(cds_gap_iqr$is$ACT["q25"],
+                     cds_gap_iqr$oos$ACT["q25"]),
+             q75 = c(cds_gap_iqr$is$ACT["q75"],
+                     cds_gap_iqr$oos$ACT["q75"])),
+  data.frame(test = "SAT", group = c("is", "oos"),
+             q25 = c(cds_gap_iqr$is$SAT["q25"],
+                     cds_gap_iqr$oos$SAT["q25"]),
+             q75 = c(cds_gap_iqr$is$SAT["q75"],
+                     cds_gap_iqr$oos$SAT["q75"]))
+)
+
+cds_gap_preserved_gaps <- cds_gap_fitted_iqrs %>%
+  group_by(test) %>%
+  summarize(
+    q25_gap = q25[group == "oos"] - q25[group == "is"],
+    q75_gap = q75[group == "oos"] - q75[group == "is"],
+    .groups = "drop"
+  )
+
+cds_gap_score_diagnostics <- bind_rows(
+  summarize_score_mixture(iqr, "ACT", cds_act_percentiles,
+                          cds_act_bands, score_residency_weights,
+                          "FAQ IQR baseline"),
+  summarize_score_mixture(cds_gap_iqr, "ACT", cds_act_percentiles,
+                          cds_act_bands, score_residency_weights,
+                          "CDS gap-preserving"),
+  summarize_score_mixture(iqr, "SAT", cds_sat_percentiles,
+                          cds_sat_bands, score_residency_weights,
+                          "FAQ IQR baseline"),
+  summarize_score_mixture(cds_gap_iqr, "SAT", cds_sat_percentiles,
+                          cds_sat_bands, score_residency_weights,
+                          "CDS gap-preserving")
+)
+
+print(cds_gap_fitted_iqrs)
+print(cds_gap_preserved_gaps)
+print(cds_gap_score_diagnostics)
+
+set.seed(124)
 
 res_is <- estimate_group(
   group = "is",
   n_students = n_is,
   p_submit_group = p_submit_is,
   rho = rho,
-  B = B
+  B = B,
+  score_iqr = cds_gap_iqr
 )
 
 res_oos <- estimate_group(
@@ -335,24 +614,72 @@ res_oos <- estimate_group(
   n_students = n_oos,
   p_submit_group = p_submit_oos,
   rho = rho,
-  B = B
+  B = B,
+  score_iqr = cds_gap_iqr
 )
 
 baseline <- rbind(res_is, res_oos)
-
 baseline$total_share <- baseline$total_aid / sum(baseline$total_aid)
 
 print(baseline)
 
 # -----------------------------
-# 4. Sensitivity: GPA-test correlation
+# 4. Sensitivity: FAQ-level score distributions
+# -----------------------------
+
+set.seed(123)
+
+faq_iqr_res_is <- estimate_group(
+  group = "is",
+  n_students = n_is,
+  p_submit_group = p_submit_is,
+  rho = rho,
+  B = B,
+  score_iqr = iqr
+)
+
+faq_iqr_res_oos <- estimate_group(
+  group = "oos",
+  n_students = n_oos,
+  p_submit_group = p_submit_oos,
+  rho = rho,
+  B = B,
+  score_iqr = iqr
+)
+
+faq_iqr_sensitivity <- rbind(faq_iqr_res_is, faq_iqr_res_oos)
+faq_iqr_sensitivity$total_share <-
+  faq_iqr_sensitivity$total_aid / sum(faq_iqr_sensitivity$total_aid)
+
+score_distribution_merit_comparison <- bind_rows(
+  baseline %>%
+    mutate(model = "CDS gap-preserving main"),
+  faq_iqr_sensitivity %>%
+    mutate(model = "FAQ-IQR sensitivity")
+) %>%
+  transmute(
+    model,
+    group,
+    avg_auto_merit = mean_aid_all,
+    total_auto_merit = total_aid,
+    total_auto_merit_millions = total_aid / 1e6,
+    total_share
+  )
+
+print(faq_iqr_sensitivity)
+print(score_distribution_merit_comparison)
+
+# -----------------------------
+# 5. Sensitivity: GPA-test correlation
 # -----------------------------
 
 rho_grid <- c(0, 0.3, 0.6, 0.8)
 
 rho_sens <- do.call(rbind, lapply(rho_grid, function(rr) {
-  x_is <- estimate_group("is", n_is, p_submit_is, rho = rr, B = B / 4)
-  x_oos <- estimate_group("oos", n_oos, p_submit_oos, rho = rr, B = B / 4)
+  x_is <- estimate_group("is", n_is, p_submit_is, rho = rr,
+                         B = B / 4, score_iqr = cds_gap_iqr)
+  x_oos <- estimate_group("oos", n_oos, p_submit_oos, rho = rr,
+                          B = B / 4, score_iqr = cds_gap_iqr)
   x <- rbind(x_is, x_oos)
   data.frame(
     rho = rr,
@@ -365,7 +692,7 @@ rho_sens <- do.call(rbind, lapply(rho_grid, function(rr) {
 print(rho_sens)
 
 # -----------------------------
-# 5. Sensitivity: differential score submission by residency
+# 5B. Sensitivity: differential score submission by residency
 # -----------------------------
 
 # Overall score-submission rate must remain 77%.
@@ -380,8 +707,10 @@ submit_sens <- do.call(rbind, lapply(oos_submit_grid, function(p_oos_assumed) {
   
   p_is_implied <- ((n_is + n_oos) * p_submit - n_oos * p_oos_assumed) / n_is
   
-  x_is <- estimate_group("is", n_is, p_is_implied, rho = rho, B = B / 4)
-  x_oos <- estimate_group("oos", n_oos, p_oos_assumed, rho = rho, B = B / 4)
+  x_is <- estimate_group("is", n_is, p_is_implied, rho = rho,
+                         B = B / 4, score_iqr = cds_gap_iqr)
+  x_oos <- estimate_group("oos", n_oos, p_oos_assumed, rho = rho,
+                          B = B / 4, score_iqr = cds_gap_iqr)
   x <- rbind(x_is, x_oos)
   
   data.frame(
@@ -678,13 +1007,81 @@ exact_match_results$share_total_inst_grants <-
 
 print(exact_match_results)
 
+# Alternative exact-match allocation using the FAQ-IQR score-distribution
+# sensitivity, with the same IPEDS tuition-grant target, Alabama Advantage
+# assumptions, and 50/50 residual split.
+build_exact_match_from_auto <- function(auto_results) {
+  
+  auto_is_s <- auto_results$total_aid[auto_results$group == "is"]
+  auto_oos_s <- auto_results$total_aid[auto_results$group == "oos"]
+  auto_total_s <- auto_is_s + auto_oos_s
+  
+  residual_s <- target_fy_inst_grants - auto_total_s
+  
+  if (residual_s < 0) {
+    warning("Institutional grant target is below sensitivity automatic merit total. Scaling merit down proportionally.")
+    
+    scale_factor_s <- target_fy_inst_grants / auto_total_s
+    auto_is_adj_s  <- auto_is_s  * scale_factor_s
+    auto_oos_adj_s <- auto_oos_s * scale_factor_s
+    residual_s <- 0
+  } else {
+    auto_is_adj_s  <- auto_is_s
+    auto_oos_adj_s <- auto_oos_s
+  }
+  
+  alabama_advantage_s <- min(
+    n_is * pell_share_is * avg_alabama_advantage_topup,
+    residual_s
+  )
+  
+  other_residual_s <- residual_s - alabama_advantage_s
+  
+  resid_is_s <-
+    alabama_advantage_s +
+    share_other_residual_to_is * other_residual_s
+  
+  resid_oos_s <-
+    (1 - share_other_residual_to_is) * other_residual_s
+  
+  out <- data.frame(
+    group = c("is", "oos"),
+    n_students = c(n_is, n_oos),
+    auto_merit_total = c(auto_is_adj_s, auto_oos_adj_s),
+    residual_inst_grants = c(resid_is_s, resid_oos_s),
+    total_inst_grants = c(
+      auto_is_adj_s + resid_is_s,
+      auto_oos_adj_s + resid_oos_s
+    )
+  )
+  
+  out$avg_auto_merit <- out$auto_merit_total / out$n_students
+  out$avg_residual_inst_grants <-
+    out$residual_inst_grants / out$n_students
+  out$avg_total_inst_grants <- out$total_inst_grants / out$n_students
+  out$share_total_inst_grants <-
+    out$total_inst_grants / sum(out$total_inst_grants)
+  
+  out
+}
+
+faq_iqr_exact_match_results <-
+  build_exact_match_from_auto(faq_iqr_sensitivity)
+
+print(faq_iqr_exact_match_results)
+
 # -----------------------------
 # 6G. Sensitivity over residual allocation
 # -----------------------------
 
-share_grid <- c(0.50, 0.65, 0.75, 1.00)
+residual_split_sensitivity <- data.frame(
+  residual_split = c("1:2 IS:OOS", "1:1 IS:OOS", "2:1 IS:OOS"),
+  share_other_residual_to_is = c(1 / 3, 1 / 2, 2 / 3)
+)
 
-residual_alloc_sens <- do.call(rbind, lapply(share_grid, function(s_is) {
+residual_alloc_sens <- do.call(rbind, lapply(seq_len(nrow(residual_split_sensitivity)), function(i) {
+  
+  s_is <- residual_split_sensitivity$share_other_residual_to_is[i]
   
   resid_is_s <-
     alabama_advantage_total +
@@ -697,6 +1094,7 @@ residual_alloc_sens <- do.call(rbind, lapply(share_grid, function(s_is) {
   total_oos_s <- auto_oos_adj + resid_oos_s
   
   data.frame(
+    residual_split = residual_split_sensitivity$residual_split[i],
     share_other_residual_to_is = s_is,
     avg_total_is = total_is_s / n_is,
     avg_total_oos = total_oos_s / n_oos,
@@ -754,15 +1152,108 @@ cost_summary <- data.frame(
 print(cost_summary)
 
 # -----------------------------
-# 6I. Plot automatic merit schedules by ACT score
+# 6I. ACT score distributions by residency
 # -----------------------------
 
-act_grid <- 18:36
+act_bin_weights <- function(group = c("is", "oos"),
+                            act_grid,
+                            score_iqr = cds_gap_iqr) {
+  
+  group <- match.arg(group)
+  act_dist <- fit_normal_from_iqr(score_iqr[[group]]$ACT["q25"],
+                                  score_iqr[[group]]$ACT["q75"])
+  act_density <- dnorm(act_grid, act_dist$mu, act_dist$sigma)
+  
+  data.frame(
+    act = act_grid,
+    act_prob = act_density / sum(act_density)
+  )
+}
+
+act_grid <- 1:36
+act_distribution_plot_grid <- 12:36
+act_merit_plot_grid <- 18:36
 gpa_plot <- 3.50
 
+act_distribution_plot_data <- bind_rows(
+  act_bin_weights("is", act_distribution_plot_grid) %>%
+    mutate(group = "In-state"),
+  act_bin_weights("oos", act_distribution_plot_grid) %>%
+    mutate(group = "Out-of-state")
+) %>%
+  mutate(group = factor(group, levels = c("In-state", "Out-of-state")))
+
+act_distribution_plot <- ggplot(
+  act_distribution_plot_data,
+  aes(x = act, y = act_prob, color = group)
+) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = seq(12, 36, by = 3)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_manual(
+    values = c("In-state" = "#440154FF",
+               "Out-of-state" = "#21908CFF"),
+    name = NULL
+  ) +
+  labs(x = "ACT score", y = "Share of ACT submitters") +
+  theme_classic() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray80", linetype = "dashed"),
+    legend.position = "bottom"
+  )
+
+print(act_distribution_plot)
+
+ggsave(
+  paste0(pathFigures, "act_score_distribution.png"),
+  act_distribution_plot,
+  width = 6.5,
+  height = 5
+)
+
+act_distribution_faq_plot_data <- bind_rows(
+  act_bin_weights("is", act_distribution_plot_grid, iqr) %>%
+    mutate(group = "In-state"),
+  act_bin_weights("oos", act_distribution_plot_grid, iqr) %>%
+    mutate(group = "Out-of-state")
+) %>%
+  mutate(group = factor(group, levels = c("In-state", "Out-of-state")))
+
+act_distribution_faq_plot <- ggplot(
+  act_distribution_faq_plot_data,
+  aes(x = act, y = act_prob, color = group)
+) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = seq(12, 36, by = 3)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_manual(
+    values = c("In-state" = "#440154FF",
+               "Out-of-state" = "#21908CFF"),
+    name = NULL
+  ) +
+  labs(x = "ACT score", y = "Share of ACT submitters") +
+  theme_classic() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray80", linetype = "dashed"),
+    legend.position = "bottom"
+  )
+
+print(act_distribution_faq_plot)
+
+ggsave(
+  paste0(pathFigures, "act_score_distribution_faq_sensitivity.png"),
+  act_distribution_faq_plot,
+  width = 6.5,
+  height = 5
+)
+
+# -----------------------------
+# 6J. Plot automatic merit schedules by ACT score
+# -----------------------------
+
 merit_schedule_plot_data <- data.frame(
-  group = rep(c("In-state", "Out-of-state"), each = length(act_grid)),
-  act = rep(act_grid, times = 2)
+  group = rep(c("In-state", "Out-of-state"), each = length(act_merit_plot_grid)),
+  act = rep(act_merit_plot_grid, times = 2)
 ) %>%
   left_join(
     exact_match_results %>%
@@ -875,7 +1366,9 @@ full_grant_exact_match_results$avg_total_inst_grants <-
   full_grant_exact_match_results$total_inst_grants /
   full_grant_exact_match_results$n_students
 
-full_grant_residual_alloc_sens <- do.call(rbind, lapply(share_grid, function(s_is) {
+full_grant_residual_alloc_sens <- do.call(rbind, lapply(seq_len(nrow(residual_split_sensitivity)), function(i) {
+  
+  s_is <- residual_split_sensitivity$share_other_residual_to_is[i]
   
   resid_is_s <-
     full_grant_alabama_advantage_total +
@@ -888,6 +1381,7 @@ full_grant_residual_alloc_sens <- do.call(rbind, lapply(share_grid, function(s_i
   total_oos_s <- full_grant_auto_oos_adj + resid_oos_s
   
   data.frame(
+    residual_split = residual_split_sensitivity$residual_split[i],
     share_other_residual_to_is = s_is,
     avg_total_is = total_is_s / n_is,
     avg_total_oos = total_oos_s / n_oos
@@ -955,8 +1449,170 @@ tuition_margin_results <- build_tuition_margin_results(
 
 print(tuition_margin_results)
 
+faq_iqr_tuition_margin_results <- build_tuition_margin_results(
+  faq_iqr_exact_match_results,
+  "IPEDS SFA tuition target, FAQ-IQR scores"
+)
+
+score_sensitivity_margin_comparison <- bind_rows(
+  tuition_margin_results %>%
+    mutate(model = "CDS gap-preserving main"),
+  faq_iqr_tuition_margin_results %>%
+    mutate(model = "FAQ-IQR sensitivity")
+) %>%
+  left_join(
+    bind_rows(
+      baseline %>%
+        transmute(model = "CDS gap-preserving main",
+                  group,
+                  avg_auto_merit = mean_aid_all),
+      faq_iqr_sensitivity %>%
+        transmute(model = "FAQ-IQR sensitivity",
+                  group,
+                  avg_auto_merit = mean_aid_all)
+    ),
+    by = c("model", "group")
+  ) %>%
+  select(
+    model,
+    group,
+    avg_auto_merit,
+    avg_total_tuition_grants = avg_tuition_grants,
+    net_tuition_fees,
+    margin_vs_core_cost
+  )
+
+print(score_sensitivity_margin_comparison)
+
 # -----------------------------
-# 7C. Alternative CDS grant targets
+# 7C. OOS cross-subsidy and loss-making high-achievement awards
+# -----------------------------
+
+is_tuition_margin <- tuition_margin_results %>%
+  filter(group == "is")
+
+oos_tuition_margin <- tuition_margin_results %>%
+  filter(group == "oos")
+
+is_subsidy_per_student <-
+  core_cost_per_fte - is_tuition_margin$net_tuition_fees
+
+oos_current_total_margin <-
+  oos_tuition_margin$margin_vs_core_cost * oos_tuition_margin$n_students
+
+avg_oos_margin <- oos_current_total_margin / oos_tuition_margin$n_students
+
+avg_oos_residual_tuition_grants <- exact_match_results %>%
+  filter(group == "oos") %>%
+  pull(avg_residual_inst_grants)
+
+# Treat the OOS ACT distribution as an ACT-equivalent distribution for
+# score-submitters. Non-submitters are not assigned automatic merit aid, but
+# they still receive the average residual/non-merit tuition grant.
+oos_loss_by_act <- act_bin_weights("oos", act_grid) %>%
+  mutate(
+    n_students = n_oos * p_submit_oos * act_prob,
+    gross_tuition_fees = tuition_oos + required_fees,
+    automatic_merit = award_oos(act, gpa_plot, test = "ACT"),
+    residual_tuition_grants = avg_oos_residual_tuition_grants,
+    net_tuition_fees = pmax(
+      gross_tuition_fees - automatic_merit - residual_tuition_grants,
+      0
+    ),
+    margin_vs_core_cost = net_tuition_fees - core_cost_per_fte,
+    loss_per_student = pmax(core_cost_per_fte - net_tuition_fees, 0),
+    recoupable_loss = n_students * loss_per_student
+  )
+
+recoupable_oos_loss <- sum(oos_loss_by_act$recoupable_loss)
+
+oos_non_submitter_n <- n_oos * (1 - p_submit_oos)
+oos_non_submitter_net_tuition_fees <-
+  tuition_oos + required_fees - avg_oos_residual_tuition_grants
+oos_non_submitter_margin_vs_core_cost <-
+  oos_non_submitter_net_tuition_fees - core_cost_per_fte
+oos_non_submitter_gain <- oos_non_submitter_n *
+  pmax(oos_non_submitter_margin_vs_core_cost, 0)
+
+profitable_oos_gain <- sum(
+  oos_loss_by_act$n_students *
+    pmax(oos_loss_by_act$margin_vs_core_cost, 0)
+) + oos_non_submitter_gain
+
+unprofitable_oos_loss <- sum(
+  oos_loss_by_act$n_students *
+    pmax(-oos_loss_by_act$margin_vs_core_cost, 0)
+)
+
+profitable_oos_n <- sum(
+  oos_loss_by_act$n_students[oos_loss_by_act$margin_vs_core_cost > 0]
+) + if_else(oos_non_submitter_margin_vs_core_cost > 0,
+            oos_non_submitter_n,
+            0)
+
+unprofitable_oos_n <- sum(
+  oos_loss_by_act$n_students[oos_loss_by_act$margin_vs_core_cost < 0]
+)
+
+avg_profitable_oos_gain <- profitable_oos_gain / profitable_oos_n
+avg_unprofitable_oos_loss <- unprofitable_oos_loss / unprofitable_oos_n
+
+profitability_cutoff <- oos_loss_by_act %>%
+  summarize(
+    max_profitable_act = max(act[margin_vs_core_cost > 0]),
+    min_unprofitable_act = min(act[margin_vs_core_cost < 0])
+  )
+
+is_total_loss <- is_subsidy_per_student * is_tuition_margin$n_students
+
+cross_subsidy_summary <- data.frame(
+  measure = c(
+    "In-state subsidy per student",
+    "Total losses on in-state students ($M)",
+    "Total net gains on profitable OOS students ($M)",
+    "  of which: OOS non-submitters ($M)",
+    "Total net losses on unprofitable OOS students ($M)",
+    "Average gain per profitable OOS student",
+    "Average loss per unprofitable OOS student",
+    "Average margin per OOS student",
+    "In-state students funded by one profitable OOS student",
+    "In-state students funded by one average OOS student",
+    "High-score OOS students funded by one profitable OOS student",
+    "Current total OOS margin ($M)",
+    "Current in-state students financed by OOS margin",
+    "Recoupable loss on unprofitable OOS students ($M)",
+    "Additional in-state students financeable from OOS losses",
+    "Potential in-state students financed from OOS losses"
+  ),
+  value = c(
+    is_subsidy_per_student,
+    is_total_loss / 1e6,
+    profitable_oos_gain / 1e6,
+    oos_non_submitter_gain / 1e6,
+    unprofitable_oos_loss / 1e6,
+    avg_profitable_oos_gain,
+    avg_unprofitable_oos_loss,
+    avg_oos_margin,
+    avg_profitable_oos_gain / is_subsidy_per_student,
+    avg_oos_margin / is_subsidy_per_student,
+    avg_profitable_oos_gain / avg_unprofitable_oos_loss,
+    oos_current_total_margin / 1e6,
+    oos_current_total_margin / is_subsidy_per_student,
+    recoupable_oos_loss / 1e6,
+    recoupable_oos_loss / is_subsidy_per_student,
+    (oos_current_total_margin + recoupable_oos_loss) /
+      is_subsidy_per_student
+  )
+)
+
+cross_subsidy_summary$value <- round(cross_subsidy_summary$value, 2)
+
+print(oos_loss_by_act)
+print(profitability_cutoff)
+print(cross_subsidy_summary)
+
+# -----------------------------
+# 7D. Alternative CDS grant targets
 # -----------------------------
 
 allocate_grants_for_target <- function(target_total) {
@@ -1007,7 +1663,7 @@ cds_tuition_margin_results <- bind_rows(
 print(cds_tuition_margin_results)
 
 # -----------------------------
-# 7D. Supplemental expansive-cost net payments and margins
+# 7E. Supplemental expansive-cost net payments and margins
 # -----------------------------
 
 expansive_residency_results <- expansive_charges %>%

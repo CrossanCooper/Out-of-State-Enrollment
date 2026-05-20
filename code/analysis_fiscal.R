@@ -47,15 +47,16 @@ required_fees <- if_else('FEE3' %in% names(tuition),
                          0)
 posted_oos_tuition_fees <- posted_oos_tuition + required_fees
 
-# The grant-aid estimates come from analysis_grant_aid.R's 2023-24 IPEDS
-# SFA tuition target with a 50/50 split of residual institutional tuition
-# grants after Alabama Advantage. To keep this fiscal file on its original
-# 2019 baseline, scale those grant estimates by the ratio of 2019 to
-# 2023-24 headline OOS tuition.
+# The grant-aid estimates come from analysis_grant_aid.R's main
+# 2023-24 specification: CDS gap-preserving ACT/SAT score distributions,
+# the IPEDS SFA tuition target, and a 50/50 split of residual institutional
+# tuition grants after Alabama Advantage. To keep this fiscal file on its
+# original 2019 baseline, scale those grant estimates by the ratio of 2019
+# to 2023-24 headline OOS tuition.
 posted_oos_tuition_2023 <- 32400
 tuition_scale_2019_from_2023 <- posted_oos_tuition / posted_oos_tuition_2023
-avg_oos_auto_merit_2023 <- 10295.094
-avg_oos_residual_tuition_grant_2023 <- 1385.984
+avg_oos_auto_merit_2023 <- 8618.605
+avg_oos_residual_tuition_grant_2023 <- 2402.373
 avg_oos_auto_merit <- avg_oos_auto_merit_2023 *
   tuition_scale_2019_from_2023
 avg_oos_residual_tuition_grant <- avg_oos_residual_tuition_grant_2023 *
@@ -232,8 +233,8 @@ grant_aid_inputs <- data.frame(
     'Posted OOS tuition and fees, 2019',
     'Posted OOS tuition, 2023 grant-aid baseline',
     'Grant-aid scale factor, 2019/2023',
-    'Average OOS automatic merit aid, 2023 estimate',
-    'Average OOS residual tuition grants, 2023 estimate',
+    'Average OOS automatic merit aid, 2023 main estimate',
+    'Average OOS residual tuition grants, 2023 main estimate',
     'Average OOS automatic merit aid, scaled to 2019',
     'Average OOS residual tuition grants, scaled to 2019',
     'Average OOS tuition grants, scaled to 2019',
