@@ -963,13 +963,24 @@ alabama_advantage_total <-
 other_residual_inst_grants <-
   residual_inst_grants - alabama_advantage_total
 
-# Baseline allocation of non-Alabama-Advantage residual.
-#
-# 0.50: clean equal split
-# 0.65: preferred baseline if AL residents are poorer and/or some
-#       residual institutional aid has residency preference
-# 0.75: stronger in-state tilt
-share_other_residual_to_is <- 0.50
+# Allocate the non-Alabama-Advantage residual by expected grant
+# dollars per student, not by a literal split of dollars across
+# residency groups. The baseline 1:1 ratio means the average
+# residual grant is the same for in-state and OOS students.
+residual_share_to_is <- function(is_per_student_weight,
+                                 oos_per_student_weight) {
+  n_is * is_per_student_weight /
+    (n_is * is_per_student_weight +
+       n_oos * oos_per_student_weight)
+}
+
+residual_per_student_weight_is <- 1
+residual_per_student_weight_oos <- 1
+
+share_other_residual_to_is <- residual_share_to_is(
+  residual_per_student_weight_is,
+  residual_per_student_weight_oos
+)
 
 resid_is <-
   alabama_advantage_total +
@@ -1076,8 +1087,15 @@ print(faq_iqr_exact_match_results)
 
 residual_split_sensitivity <- data.frame(
   residual_split = c("1:2 IS:OOS", "1:1 IS:OOS", "2:1 IS:OOS"),
-  share_other_residual_to_is = c(1 / 3, 1 / 2, 2 / 3)
-)
+  is_per_student_weight = c(1, 1, 2),
+  oos_per_student_weight = c(2, 1, 1)
+) %>%
+  mutate(
+    share_other_residual_to_is = residual_share_to_is(
+      is_per_student_weight,
+      oos_per_student_weight
+    )
+  )
 
 residual_alloc_sens <- do.call(rbind, lapply(seq_len(nrow(residual_split_sensitivity)), function(i) {
   
@@ -1095,6 +1113,10 @@ residual_alloc_sens <- do.call(rbind, lapply(seq_len(nrow(residual_split_sensiti
   
   data.frame(
     residual_split = residual_split_sensitivity$residual_split[i],
+    is_per_student_weight =
+      residual_split_sensitivity$is_per_student_weight[i],
+    oos_per_student_weight =
+      residual_split_sensitivity$oos_per_student_weight[i],
     share_other_residual_to_is = s_is,
     avg_total_is = total_is_s / n_is,
     avg_total_oos = total_oos_s / n_oos,
@@ -1173,6 +1195,7 @@ act_bin_weights <- function(group = c("is", "oos"),
 act_grid <- 1:36
 act_distribution_plot_grid <- 12:36
 act_merit_plot_grid <- 18:36
+sat_merit_plot_grid <- seq(1000, 1600, by = 10)
 gpa_plot <- 3.50
 
 act_distribution_plot_data <- bind_rows(
@@ -1247,8 +1270,28 @@ ggsave(
   height = 5
 )
 
+# Share of all OOS students who are either non-submitters or have
+# ACT-equivalent scores at or below selected cutoffs.
+oos_act_cutoff_shares <- data.frame(
+  act_cutoff = c(24, 26, 28, 30)
+) %>%
+  mutate(
+    share_oos_submitters_at_or_below =
+      sapply(
+        act_cutoff,
+        function(x) sum(act_bin_weights("oos", act_grid)$act_prob[
+          act_bin_weights("oos", act_grid)$act <= x
+        ])
+      ),
+    share_all_oos_at_or_below_or_non_submitter =
+      (1 - p_submit_oos) +
+      p_submit_oos * share_oos_submitters_at_or_below
+  )
+
+print(oos_act_cutoff_shares)
+
 # -----------------------------
-# 6J. Plot automatic merit schedules by ACT score
+# 6J. Plot merit aid and net tuition schedules by ACT score
 # -----------------------------
 
 merit_schedule_plot_data <- data.frame(
@@ -1282,7 +1325,94 @@ merit_schedule_plot_data <- data.frame(
     group = factor(group, levels = c("In-state", "Out-of-state"))
   )
 
+sat_merit_schedule_plot_data <- data.frame(
+  group = rep(c("In-state", "Out-of-state"), each = length(sat_merit_plot_grid)),
+  score = rep(sat_merit_plot_grid, times = 2)
+) %>%
+  mutate(
+    test = "SAT",
+    automatic_merit = if_else(
+      group == "In-state",
+      award_is(score, gpa_plot, test = "SAT"),
+      award_oos(score, gpa_plot, test = "SAT")
+    ),
+    group = factor(group, levels = c("In-state", "Out-of-state"))
+  )
+
+merit_schedule_by_test_plot_data <- bind_rows(
+  merit_schedule_plot_data %>%
+    transmute(
+      test = "ACT",
+      score = act,
+      group,
+      automatic_merit
+    ),
+  sat_merit_schedule_plot_data %>%
+    select(test, score, group, automatic_merit)
+) %>%
+  mutate(test = factor(test, levels = c("ACT", "SAT")))
+
+tuition_line_labels <- data.frame(
+  test = factor(rep(c("ACT", "SAT"), each = 2), levels = c("ACT", "SAT")),
+  score = c(36, 36, 1600, 1600),
+  y = rep(c(tuition_is, tuition_oos), times = 2),
+  label = rep(c("In-state tuition", "Out-of-state tuition"), times = 2)
+)
+
 merit_schedule_plot <- ggplot(
+  merit_schedule_by_test_plot_data,
+  aes(x = score, y = automatic_merit, color = group)
+) +
+  geom_hline(yintercept = tuition_is,
+             color = "black",
+             linetype = "solid") +
+  geom_hline(yintercept = tuition_oos,
+             color = "black",
+             linetype = "solid") +
+  geom_text(
+    data = tuition_line_labels,
+    aes(x = score, y = y + 600, label = label),
+    inherit.aes = FALSE,
+    hjust = 1,
+    color = "black",
+    size = 3.25
+  ) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ test, scales = "free_x", nrow = 1) +
+  scale_x_continuous(
+    breaks = function(x) {
+      if (max(x, na.rm = TRUE) <= 40) {
+        seq(18, 36, by = 3)
+      } else {
+        seq(1000, 1600, by = 100)
+      }
+    }
+  ) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_color_manual(
+    values = c("In-state" = "#440154FF",
+               "Out-of-state" = "#21908CFF"),
+    name = NULL
+  ) +
+  labs(x = "Test score", y = "Automatic merit aid") +
+  theme_classic() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray80", linetype = "dashed"),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+print(merit_schedule_plot)
+
+ggsave(
+  paste0(pathFigures, "merit_aid_schedule.png"),
+  merit_schedule_plot,
+  width = 8,
+  height = 5
+)
+
+net_tuition_schedule_plot <- ggplot(
   merit_schedule_plot_data,
   aes(x = act, y = net_tuition_fees, color = group)
 ) +
@@ -1312,11 +1442,11 @@ merit_schedule_plot <- ggplot(
     legend.position = "bottom"
   )
 
-print(merit_schedule_plot)
+print(net_tuition_schedule_plot)
 
 ggsave(
-  paste0(pathFigures, "merit_aid_schedule.png"),
-  merit_schedule_plot,
+  paste0(pathFigures, "net_tuition_schedule.png"),
+  net_tuition_schedule_plot,
   width = 6.5,
   height = 5
 )
@@ -1382,6 +1512,10 @@ full_grant_residual_alloc_sens <- do.call(rbind, lapply(seq_len(nrow(residual_sp
   
   data.frame(
     residual_split = residual_split_sensitivity$residual_split[i],
+    is_per_student_weight =
+      residual_split_sensitivity$is_per_student_weight[i],
+    oos_per_student_weight =
+      residual_split_sensitivity$oos_per_student_weight[i],
     share_other_residual_to_is = s_is,
     avg_total_is = total_is_s / n_is,
     avg_total_oos = total_oos_s / n_oos
