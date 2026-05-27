@@ -41,28 +41,41 @@ tuition <- read.csv(paste0(pathHome, 'data/ipeds_tuition/ic',
   rename_with(toupper) %>%
   filter(UNITID == 100751)
 
+posted_is_tuition <- as.numeric(tuition$TUITION1)
 posted_oos_tuition <- as.numeric(tuition$TUITION3)
 required_fees <- if_else('FEE3' %in% names(tuition),
                          as.numeric(tuition$FEE3),
                          0)
+posted_is_tuition_fees <- posted_is_tuition + required_fees
 posted_oos_tuition_fees <- posted_oos_tuition + required_fees
 
 # The grant-aid estimates come from analysis_grant_aid.R's main
 # 2023-24 specification: CDS gap-preserving ACT/SAT score distributions,
-# the IPEDS SFA tuition target, and a 50/50 split of residual institutional
-# tuition grants after Alabama Advantage. To keep this fiscal file on its
-# original 2019 baseline, scale those grant estimates by the ratio of 2019
-# to 2023-24 headline OOS tuition.
+# the IPEDS SFA tuition target, and a 1:1 per-student allocation of
+# non-Alabama-Advantage residual institutional tuition grants. To keep this
+# fiscal file on its original 2019 baseline, scale those grant estimates by
+# the ratio of 2019 to 2023-24 headline tuition within residency.
+posted_is_tuition_2023 <- 11100
 posted_oos_tuition_2023 <- 32400
+tuition_scale_is_2019_from_2023 <- posted_is_tuition / posted_is_tuition_2023
 tuition_scale_2019_from_2023 <- posted_oos_tuition / posted_oos_tuition_2023
+avg_is_auto_merit_2023 <- 3755.296
+avg_is_residual_tuition_grant_2023 <- 3964.222
 avg_oos_auto_merit_2023 <- 8618.605
-avg_oos_residual_tuition_grant_2023 <- 2402.373
+avg_oos_residual_tuition_grant_2023 <- 3089.222
+avg_is_auto_merit <- avg_is_auto_merit_2023 *
+  tuition_scale_is_2019_from_2023
+avg_is_residual_tuition_grant <- avg_is_residual_tuition_grant_2023 *
+  tuition_scale_is_2019_from_2023
+avg_is_tuition_grant <-
+  avg_is_auto_merit + avg_is_residual_tuition_grant
 avg_oos_auto_merit <- avg_oos_auto_merit_2023 *
   tuition_scale_2019_from_2023
 avg_oos_residual_tuition_grant <- avg_oos_residual_tuition_grant_2023 *
   tuition_scale_2019_from_2023
 avg_oos_tuition_grant <-
   avg_oos_auto_merit + avg_oos_residual_tuition_grant
+is_net_tuition_fees <- posted_is_tuition_fees - avg_is_tuition_grant
 oos_net_tuition_fees <- posted_oos_tuition_fees - avg_oos_tuition_grant
 
 fin <- read.csv(paste0(pathHome, 'data/ipeds_finance/f',
@@ -77,6 +90,12 @@ fte <- read_xlsx(paste0(pathHome, 'data/factbook/fte_by_college_in_out.xlsx')) %
   mutate(y = as.numeric(y), fte = as.numeric(fte))
 average_cost <- (fin$F1C011 + fin$F1C051 + fin$F1C061) /
   sum(fte$fte[fte$y == fte_year], na.rm = TRUE)
+annual_is_loss <- average_cost - is_net_tuition_fees
+annual_oos_margin <- oos_net_tuition_fees - average_cost
+enrollment_survival_discount_factor <-
+  sum(enrollment_survival * discount_factor^(1:4))
+discounted_is_loss <- annual_is_loss * enrollment_survival_discount_factor
+discounted_oos_margin <- annual_oos_margin * enrollment_survival_discount_factor
 
 # Major-specific inputs ---------------------------------------------------------
 
@@ -117,6 +136,48 @@ major_inputs <- data.frame(
 
 major_inputs$in_major_share <- major_inputs$share
 major_inputs$out_major_share <- major_inputs$share
+
+# LaTeX table of major-level fiscal calibration inputs.
+major_inputs_latex_data <- major_inputs %>%
+  transmute(
+    Major = major,
+    `Initial earnings` = paste0("$", formatC(initial_earnings,
+                                             format = "f",
+                                             big.mark = ",",
+                                             digits = 0)),
+    `Share of graduates` = paste0(formatC(100 * share,
+                                          format = "f",
+                                          digits = 1), "%"),
+    `Marginal effect` = formatC(marginal_effect,
+                                format = "f",
+                                digits = 2),
+    `Webber category` = webber_category
+  )
+
+escape_latex <- function(x) {
+  x <- gsub("\\$", "\\\\$", x)
+  x <- gsub("&", "\\\\&", x)
+  x <- gsub("%", "\\\\%", x)
+  x <- gsub("_", "\\\\_", x)
+  x
+}
+
+major_inputs_latex <- c(
+  "\\resizebox{\\textwidth}{!}{%",
+  "\\begin{tabular}{lcccc}",
+  "\\hline",
+  "Major & Initial earnings & Share of graduates & Marginal effect & Webber category \\\\",
+  "\\hline",
+  apply(major_inputs_latex_data, 1, function(row) {
+    paste(escape_latex(row), collapse = " & ") %>%
+      paste0(" \\\\")
+  }),
+  "\\hline",
+  "\\end{tabular}",
+  "}"
+)
+
+cat(paste(major_inputs_latex, collapse = "\n"), "\n")
 
 # Earnings profiles -------------------------------------------------------------
 
@@ -229,33 +290,59 @@ print(fiscal_results)
 grant_aid_inputs <- data.frame(
   component = c(
     'Posted OOS tuition, 2019',
+    'Posted in-state tuition, 2019',
     'Required fees, 2019',
+    'Posted in-state tuition and fees, 2019',
     'Posted OOS tuition and fees, 2019',
+    'Posted in-state tuition, 2023 grant-aid baseline',
     'Posted OOS tuition, 2023 grant-aid baseline',
+    'In-state grant-aid scale factor, 2019/2023',
     'Grant-aid scale factor, 2019/2023',
+    'Average in-state automatic merit aid, 2023 main estimate',
+    'Average in-state residual tuition grants, 2023 main estimate',
     'Average OOS automatic merit aid, 2023 main estimate',
     'Average OOS residual tuition grants, 2023 main estimate',
+    'Average in-state automatic merit aid, scaled to 2019',
+    'Average in-state residual tuition grants, scaled to 2019',
     'Average OOS automatic merit aid, scaled to 2019',
     'Average OOS residual tuition grants, scaled to 2019',
+    'Average in-state tuition grants, scaled to 2019',
     'Average OOS tuition grants, scaled to 2019',
+    'Average in-state net tuition and fees, 2019',
     'Average OOS net tuition and fees, 2019',
     'Average core cost per FTE, 2019',
-    'Average annual margin before migration effects, 2019'
+    'Average annual loss on in-state students, 2019',
+    'Discounted loss on in-state students, 2019',
+    'Average annual margin before migration effects, 2019',
+    'Discounted OOS margin before migration effects, 2019'
   ),
   value = c(
     posted_oos_tuition,
+    posted_is_tuition,
     required_fees,
+    posted_is_tuition_fees,
     posted_oos_tuition_fees,
+    posted_is_tuition_2023,
     posted_oos_tuition_2023,
+    tuition_scale_is_2019_from_2023,
     tuition_scale_2019_from_2023,
+    avg_is_auto_merit_2023,
+    avg_is_residual_tuition_grant_2023,
     avg_oos_auto_merit_2023,
     avg_oos_residual_tuition_grant_2023,
+    avg_is_auto_merit,
+    avg_is_residual_tuition_grant,
     avg_oos_auto_merit,
     avg_oos_residual_tuition_grant,
+    avg_is_tuition_grant,
     avg_oos_tuition_grant,
+    is_net_tuition_fees,
     oos_net_tuition_fees,
     average_cost,
-    oos_net_tuition_fees - average_cost
+    annual_is_loss,
+    discounted_is_loss,
+    annual_oos_margin,
+    discounted_oos_margin
   ),
   stringsAsFactors = FALSE
 )
