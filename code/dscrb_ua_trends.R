@@ -107,7 +107,8 @@ for (i in 1:length(years)) {
       rename_all(toupper) %>%
       mutate(y = years[i],
              UNITID = as.numeric(UNITID)) %>%
-      select(any_of(c('y', 'UNITID', 'SCFA1N', 'SCFA1P', 'SCFA11P', 'SCFA12P', 'SCFA13P', 'SCFA14P',
+      select(any_of(c('y', 'UNITID', 'SCFA1N', 'SCFA1P',
+                      'SCFA11P', 'SCFA12P', 'SCFA13P', 'SCFA14P',
                       # UAGRNTP, UAGRNTA, AIDFSIP, AGRNT_P, AGRNT_A, PGRNT_P, PGRNT_A
                       'ANYAIDP',
                       'FGRNT_P', 'FGRNT_A', 'SGRNT_P', 'SGRNT_A',
@@ -123,7 +124,8 @@ for (i in 1:length(years)) {
       rename_all(toupper) %>%
       mutate(y = years[i],
              UNITID = as.numeric(UNITID)) %>%
-      select(any_of(c('y', 'UNITID', 'SCFA1N', 'SCFA1P', 'SCFA11P', 'SCFA12P', 'SCFA13P', 'SCFA14P',
+      select(any_of(c('y', 'UNITID', 'SCFA1N', 'SCFA1P',
+                      'SCFA11P', 'SCFA12P', 'SCFA13P', 'SCFA14P',
                       # UAGRNTP, UAGRNTA, AIDFSIP, AGRNT_P, AGRNT_A, PGRNT_P, PGRNT_A
                       'ANYAIDP',
                       'FGRNT_P', 'FGRNT_A', 'SGRNT_P', 'SGRNT_A',
@@ -139,12 +141,32 @@ for (i in 1:length(years)) {
 
 # Financials
 fin <- data.frame()
+finance_years <- 2001:2023
 
-for (i in 1:length(years)) {
+for (i in 1:length(finance_years)) {
   
-  fin <- read.csv(paste0(pathHome, 'data/ipeds_finance/f', substr(years[i], 3, 4), substr(years[i] + 1, 3, 4), if_else(years[i] <= 2002, '_f1a.csv', '_f1a_rv.csv'))) %>%
+  fin_path <- paste0(pathHome, 'data/ipeds_finance/f',
+                     substr(finance_years[i], 3, 4),
+                     substr(finance_years[i] + 1, 3, 4),
+                     if_else(finance_years[i] <= 2002,
+                             '_f1a.csv',
+                             '_f1a_rv.csv'))
+  fin_path_raw <- paste0(pathHome, 'data/ipeds_finance/f',
+                         substr(finance_years[i], 3, 4),
+                         substr(finance_years[i] + 1, 3, 4),
+                         '_f1a.csv')
+  
+  if (!file.exists(fin_path) & file.exists(fin_path_raw)) {
+    fin_path <- fin_path_raw
+  }
+  
+  if (!file.exists(fin_path)) {
+    next
+  }
+  
+  fin <- read.csv(fin_path) %>%
     rename_all(toupper) %>%
-    mutate(y = years[i],
+    mutate(y = finance_years[i],
            UNITID = as.numeric(UNITID)) %>%
     select(any_of(c('y', 'UNITID', 'F1A18', 'F1B01', 'F1B02', 'F1B03', 'F1B04',
                     'F1B05', 'F1B06', 'F1B26', 'F1B07', 'F1B08',
@@ -197,6 +219,84 @@ ef_tot <- ef %>%
   mutate(enroll = EFRES01) %>%
   select(y, UNITID, enroll)
 
+# Get all-undergraduate Fall enrollment from EF_A files.
+# Newer files report this as EFTOTLT; older files use EFRACE24.
+# In 2001, use LSTUDY == 1 and EFRACE15 + EFRACE16.
+ef_a <- data.frame()
+ef_a_years <- 2001:2023
+
+for (i in 1:length(ef_a_years)) {
+  
+  ef_a_path <- paste0(pathHome, 'data/ipeds_fe_a/ef',
+                      ef_a_years[i], 'a_rv.csv')
+  ef_a_path_raw <- paste0(pathHome, 'data/ipeds_fe_a/ef',
+                          ef_a_years[i], 'a.csv')
+  
+  if (!file.exists(ef_a_path) & file.exists(ef_a_path_raw)) {
+    ef_a_path <- ef_a_path_raw
+  }
+  
+  if (file.exists(ef_a_path)) {
+    
+    ef_a_i <- read.csv(ef_a_path) %>%
+      rename_all(toupper) %>%
+      mutate(y = ef_a_years[i],
+             UNITID = as.numeric(UNITID)) %>%
+      select(any_of(c('y', 'UNITID', 'EFALEVEL', 'LINE', 'SECTION', 'LSTUDY',
+                      'EFTOTLT', 'EFRACE24', 'EFRACE15', 'EFRACE16')))
+    
+    if (!('EFALEVEL' %in% names(ef_a_i))) {
+      ef_a_i$EFALEVEL <- NA_real_
+    }
+    
+    if (!('EFTOTLT' %in% names(ef_a_i))) {
+      ef_a_i$EFTOTLT <- NA_real_
+    }
+    
+    if (!('EFRACE24' %in% names(ef_a_i))) {
+      ef_a_i$EFRACE24 <- NA_real_
+    }
+    
+    if (!('EFRACE15' %in% names(ef_a_i))) {
+      ef_a_i$EFRACE15 <- NA_real_
+    }
+    
+    if (!('EFRACE16' %in% names(ef_a_i))) {
+      ef_a_i$EFRACE16 <- NA_real_
+    }
+    
+    if (!('LSTUDY' %in% names(ef_a_i))) {
+      ef_a_i$LSTUDY <- NA_real_
+    }
+    
+    if (!('LINE' %in% names(ef_a_i))) {
+      ef_a_i$LINE <- NA_real_
+    }
+    
+    if (!('SECTION' %in% names(ef_a_i))) {
+      ef_a_i$SECTION <- NA_real_
+    }
+    
+    ef_a <- ef_a_i %>%
+      mutate(EFALEVEL = as.numeric(EFALEVEL),
+             LINE = as.numeric(LINE),
+             SECTION = as.numeric(SECTION),
+             LSTUDY = as.numeric(LSTUDY),
+             undergrad_enroll = case_when(
+               y == 2001 & LINE == 8 & SECTION == 1 & LSTUDY == 1 ~
+                 as.numeric(EFRACE15) + as.numeric(EFRACE16),
+               EFALEVEL == 2 ~ coalesce(as.numeric(EFTOTLT),
+                                        as.numeric(EFRACE24))
+             )) %>%
+      filter((y == 2001 & LINE == 8 & SECTION == 1 & LSTUDY == 1) |
+               EFALEVEL == 2) %>%
+      select(y, UNITID, undergrad_enroll) %>%
+      bind_rows(ef_a)
+    
+  }
+  
+}
+
 # Get panel of all colleges and their characteristics
 all <- hd %>%
   # Remove administrative units
@@ -205,11 +305,9 @@ all <- hd %>%
   left_join(aid) %>%
   left_join(fin) %>%
   left_join(ef_tot) %>%
+  left_join(ef_a) %>%
   # Identify flagships
   mutate(flagship = UNITID %in% flagship_ids)
-
-# Save IPEDS panel
-saveRDS(all, paste0(pathHome, 'data/ipeds_panel.rds'))
 
 # Get U of A separately
 ua <- all %>%
@@ -224,6 +322,75 @@ ua <- ua %>%
 ua <- ua %>%
   mutate(F1B26 = if_else(is.na(F1B26), 0, F1B26))
 
+# Separate finance/enrollment panel for revenue charts that extend beyond
+# the broader tuition/aid/admissions panel.
+ua_revenue <- fin %>%
+  filter(UNITID == 100751) %>%
+  left_join(ef_a, by = c('y', 'UNITID')) %>%
+  mutate(F1B26 = if_else(is.na(F1B26), 0, F1B26))
+
+# Put dollar-denominated series in FY 2022-23 dollars using the GDP deflator.
+# GDPDEF source: FRED, https://fred.stlouisfed.org/series/GDPDEF
+gdpdef <- read.csv(paste0(pathHome, 'data/GDPDEF.csv')) %>%
+  mutate(date = as.Date(observation_date),
+         cal_year = as.numeric(format(date, '%Y')),
+         quarter = ceiling(as.numeric(format(date, '%m')) / 3))
+
+# The IPEDS finance/tuition files are academic/fiscal-year files named by
+# start year in this script, so y = 2019 corresponds to FY 2019-20.
+cal_years <- unique(c(years + 1, finance_years + 1, 2023))
+
+fy_deflator <- data.frame(deflator_year = cal_years) %>%
+  rowwise() %>%
+  mutate(deflator = mean(c(
+    gdpdef$GDPDEF[gdpdef$cal_year == deflator_year - 1 &
+                    gdpdef$quarter == 3],
+    gdpdef$GDPDEF[gdpdef$cal_year == deflator_year - 1 &
+                    gdpdef$quarter == 4],
+    gdpdef$GDPDEF[gdpdef$cal_year == deflator_year &
+                    gdpdef$quarter == 1],
+    gdpdef$GDPDEF[gdpdef$cal_year == deflator_year &
+                    gdpdef$quarter == 2]
+  ), na.rm = TRUE)) %>%
+  ungroup()
+
+base_deflator <- fy_deflator$deflator[fy_deflator$deflator_year == 2023]
+
+fy_deflator <- fy_deflator %>%
+  mutate(to_2023 = base_deflator / deflator)
+
+deflate_to_2023 <- function(df) {
+  
+  dollar_vars <- intersect(
+    c('TUITION1', 'FEE1', 'TUITION2', 'FEE2', 'TUITION3', 'FEE3',
+      'CHG1AY3', 'CHG2AY3', 'CHG3AY3',
+      'FGRNT_A', 'SGRNT_A', 'IGRNT_A', 'LOAN_A',
+      'GIS4A12', 'GIS4A22', 'GIS4A32', 'GIS4A42', 'GIS4A52',
+      'F1A18',
+      'F1B01', 'F1B02', 'F1B03', 'F1B04', 'F1B05', 'F1B06',
+      'F1B07', 'F1B08', 'F1B09', 'F1B10', 'F1B11', 'F1B12',
+      'F1B13', 'F1B14', 'F1B15', 'F1B25', 'F1B26',
+      'F1C011', 'F1C021', 'F1C031', 'F1C041', 'F1C051',
+      'F1C061', 'F1C071', 'F1C101', 'F1C111',
+      'F1D01', 'F1D02', 'F1E11', 'F1E07', 'F1H02'),
+    names(df)
+  )
+  
+  df %>%
+    mutate(deflator_year = y + 1) %>%
+    left_join(fy_deflator, by = 'deflator_year') %>%
+    mutate(across(all_of(dollar_vars), ~ .x * to_2023)) %>%
+    select(-deflator_year, -deflator, -to_2023)
+  
+}
+
+all <- deflate_to_2023(all)
+ua <- deflate_to_2023(ua)
+ua_revenue <- deflate_to_2023(ua_revenue)
+
+# Save IPEDS panel with dollar-denominated variables in 2023 dollars.
+saveRDS(all, paste0(pathHome, 'data/ipeds_panel.rds'))
+
 # Describe UA trends ------------------------------------------------------------
 
 # Get tuition rates over time, in- vs. out-of-state
@@ -236,7 +403,7 @@ ua %>%
   scale_color_manual(values = c('steelblue1', 'indianred1')) +
   ylim(0, NA) +
   labs(x = 'Year',
-       y = 'Tuition & fees',
+       y = 'Tuition & fees (2023 dollars)',
        col = NULL,
        title = 'UA tuition rates') +
   theme_classic() +
@@ -297,7 +464,7 @@ ua %>%
   scale_color_manual(values = c('hotpink', 'purple', 'steelblue1')) +
   labs(x = 'Year',
        col = NULL,
-       title = 'Average aid amount received at UA') +
+       title = 'Average aid amount received at UA (2023 dollars)') +
   theme_classic() +
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
         legend.position = 'right',
@@ -328,7 +495,7 @@ ua %>%
   ylim(0, NA) +
   scale_color_manual(values = c('indianred1', 'pink', 'steelblue3', 'grey30', 'steelblue1')) +
   labs(x = 'Year',
-       y = '$100Ms',
+       y = '$100Ms, 2023 dollars',
        col = NULL,
        title = 'Operating revenue sources at UA') +
   theme_classic() +
@@ -419,7 +586,8 @@ ua %>%
   ylim(0, NA)
 
 # Operating revenues, tuition, and state appropriations
-ua %>%
+ua_revenue %>%
+  filter(y >= 2006 & y <= 2019) %>%
   select(y, UNITID, F1B01, F1B11, F1B25) %>%
   pivot_longer(cols = c('F1B01', 'F1B11', 'F1B25')) %>%
   mutate(name = case_when(name == 'F1B01' ~ 'Tuition',
@@ -427,16 +595,42 @@ ua %>%
                           name == 'F1B25' ~ 'Total revenues')) %>%
   ggplot(aes(x = y, y = value / 100000000, col = name)) +
   geom_line(size = 1) +
-  scale_color_manual(values = c('indianred1', 'grey30', 'steelblue1')) +
+  scale_color_manual(values = c('#21908CFF', '#FDE725FF', '#440154FF')) +
+  ylim(0, NA) +
   labs(x = 'Year',
-       y = '$100Ms',
+       y = '$100Ms (2023 dollars)',
        col = NULL,
-       title = 'UA revenue sources') +
+       #title = 'UA revenue sources'
+       ) +
   theme_classic() +
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
         legend.position = 'right',
         plot.title = element_text(hjust = 0.5))
 ggsave(paste0(pathFigures, 'ipeds/ua_trends/approp_vs_tuition.png'), width = 8, height = 5)
+
+# Tuition revenues and state appropriations per undergraduate
+ua_revenue %>%
+  filter(y >= 2006 & y <= 2019) %>%
+  filter(!is.na(undergrad_enroll) & undergrad_enroll > 0) %>%
+  select(y, UNITID, undergrad_enroll, F1B01, F1B11) %>%
+  pivot_longer(cols = c('F1B01', 'F1B11')) %>%
+  mutate(name = case_when(name == 'F1B01' ~ 'Tuition',
+                          name == 'F1B11' ~ 'State appropriations')) %>%
+  ggplot(aes(x = y, y = value / undergrad_enroll, col = name)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c('#21908CFF', '#440154FF')) +
+  scale_y_continuous(labels = scales::dollar,
+                     limits = c(0, NA)) +
+  labs(x = 'Year',
+       y = 'Revenue per undergraduate (2023 $)',
+       col = NULL,
+       #title = 'UA revenue sources per undergraduate'
+       ) +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        legend.position = 'right',
+        plot.title = element_text(hjust = 0.5))
+ggsave(paste0(pathFigures, 'ipeds/ua_trends/approp_vs_tuition_per_undergrad.png'), width = 7, height = 5)
 
 # Spending sources
 # Omit categories F1C101 for net grants/fellowships and F1C031 for public service
@@ -455,7 +649,7 @@ ua %>%
   scale_color_manual(values = c('grey30', 'indianred1', 'steelblue1', 'pink', 'purple')) +
   ylim(0, NA) +
   labs(x = 'Year',
-       y = '$100Ms',
+       y = '$100Ms, 2023 dollars',
        col = NULL,
        title = 'UA spending') +
   theme_classic() +
@@ -501,7 +695,7 @@ ua %>%
   geom_line(size = 1) +
   ylim(0, NA) +
   labs(x = 'Year',
-       y = '$100Ms',
+       y = '$100Ms, 2023 dollars',
        lty = NULL,
        title = 'UA budget') +
   theme_classic() +
@@ -540,7 +734,7 @@ flag <- all %>%
   # Get tuition share of revenues
   mutate(tuition_share = F1B01 / F1B25,
          appropriations_share = F1B11 / F1B25,
-         appropriations_per_capita = F1B11 / enroll,
+         appropriations_per_capita = F1B11 / undergrad_enroll,
          oos_share = SCFA13P / 100)
 
 # Compare characteristics in latest cross-section
