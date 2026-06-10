@@ -1169,7 +1169,8 @@ for (i in 1:nrow(cf_probs)) {
 # Plot
 # Note that here the simulated model exactly fits the data
 cf_probs %>%
-  mutate(cf = if_else(cf == 'no_OOS_growth', 'Fixed OOS Shares', 'Actual OOS Shares')) %>%
+  mutate(cf = if_else(cf == 'no_OOS_growth', 'Fixed OOS Shares', 'Actual OOS Shares'),
+         estimate = 100*(1 - estimate)) %>%
   ggplot(aes(x = y, y = estimate, col = cf, fill = cf)) +
   geom_line(lwd = 1) +
   geom_point() +
@@ -1178,7 +1179,7 @@ cf_probs %>%
   scale_color_manual(values = c('#440154FF', '#FDE725FF')) +
   #scale_fill_manual(values = c('indianred3', 'steelblue3')) +
   labs(x = 'Graduation Year',
-       y = 'Pr(Stay in Alabama)',
+       y = 'Share Out-Migrating (%)',
        col = NULL) +
   guides(fill = 'none') +
   theme_classic() +
@@ -1187,6 +1188,58 @@ cf_probs %>%
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
 ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE.png'), width = 7, height = 5)
+
+# Plot with 95% CIs for the actual vs. fixed OOS share difference
+cf_prob_diff <- data.frame(y = years,
+                           diff = NA,
+                           se = NA)
+
+for (i in 1:nrow(cf_prob_diff)) {
+  
+  # Get difference in probability of staying in Alabama
+  cf_prob_diff$diff[i] <- prob_staying(mod4$coefficients, cf = 'actual_OOS_growth', y = cf_prob_diff$y[i]) -
+    prob_staying(mod4$coefficients, cf = 'no_OOS_growth', y = cf_prob_diff$y[i])
+  
+  # Get Jacobian of the difference so the Delta method accounts for covariance
+  jac_temp <- jacobian(function(coefs) {
+    prob_staying(coefs, cf = 'actual_OOS_growth', y = cf_prob_diff$y[i]) -
+      prob_staying(coefs, cf = 'no_OOS_growth', y = cf_prob_diff$y[i])
+  }, mod4$coefficients)
+  
+  # Get standard error via Delta method
+  cf_prob_diff$se[i] <- sqrt(jac_temp %*% vcov4 %*% t(jac_temp))
+  
+  # Tracker
+  print(cf_prob_diff$y[i])
+  
+}
+
+cf_probs_diff_plot <- cf_probs %>%
+  select(y, cf, estimate) %>%
+  left_join(cf_prob_diff %>% select(y, diff_se = se), by = 'y') %>%
+  mutate(cf = if_else(cf == 'no_OOS_growth', 'Fixed OOS Shares', 'Actual OOS Shares'),
+         estimate = 100*(1 - estimate),
+         diff_se = 100*diff_se,
+         ci_low = if_else(cf == 'Fixed OOS Shares', estimate - 1.96*diff_se, NA_real_),
+         ci_high = if_else(cf == 'Fixed OOS Shares', estimate + 1.96*diff_se, NA_real_))
+
+cf_probs_diff_plot %>%
+  ggplot(aes(x = y, y = estimate, col = cf, fill = cf)) +
+  geom_ribbon(data = cf_probs_diff_plot %>% filter(cf == 'Fixed OOS Shares'),
+              aes(ymin = ci_low, ymax = ci_high), alpha = 0.2, col = NA) +
+  geom_line(lwd = 1) +
+  scale_color_manual(values = c('Fixed OOS Shares' = '#21908CFF', 'Actual OOS Shares' = '#440154FF')) +
+  scale_fill_manual(values = c('Actual OOS Shares' = '#440154FF', 'Fixed OOS Shares' = '#21908CFF')) +
+  labs(x = 'Graduation Year',
+       y = 'Share Out-Migrating (%)',
+       col = NULL) +
+  guides(fill = 'none') +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE_diffCI.png'), width = 7, height = 5)
 
 # Now get flow exit with error bars
 
