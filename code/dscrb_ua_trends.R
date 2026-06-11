@@ -11,7 +11,7 @@ source('C:/Users/ryanh/Dropbox/admissions_project/code/setup.R')
 
 # Build data --------------------------------------------------------------------
 
-years <- 2000:2019
+years <- 2000:2021
 
 # HD
 hd <- data.frame()

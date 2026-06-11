@@ -129,42 +129,95 @@ join <- dest %>%
   rename(o_state = state) %>%
   filter(grad_y < 2024)
 
-# Build in-state student share data
-# Get destination shares of in-state students
-share_ins <- join %>%
-  filter(o_state == 'Alabama') %>%
-  group_by(grad_y) %>%
-  mutate(N_cohort = n()) %>%
-  group_by(grad_y, d_state, N_cohort) %>%
-  summarize(d_share = n() / mean(N_cohort),
-            N_dest = n()) %>%
-  # Remove zero-share destinations (can't take log)
-  filter(d_share > 0) %>%
-  # Get log destination shares
-  mutate(log_d_share = log(d_share)) %>%
-  # Remove 2024 (incomplete data)
-  filter(grad_y < 2024)
-
-# Attach on the old origin shares (want to use full sample here)
-share_ins <- shares %>%
-  filter(state != 'Alabama') %>%
-  rename(d_state = state) %>%
-  select(d_state, grad_y, o_share, N_origin, ur) %>%
-  right_join(share_ins) %>%
-  # Impute zero origin students
-  mutate(N_origin = if_else(is.na(N_origin), 0, N_origin))
-
-# Get log Alabama shares (outside good)
-share_ins <- share_ins %>%
-  filter(d_state == 'Alabama') %>%
+# Build zero-inclusive in-state destination panel.
+full_cohorts <- comm %>%
   ungroup() %>%
-  select(log_d_share, grad_y) %>%
-  rename(log_al_share = log_d_share) %>%
-  right_join(share_ins) %>%
-  # Remove the outside good
-  filter(d_state != 'Alabama') %>%
-  # Get difference in log shares (relative to outside good)
-  mutate(diff_log_d_share = log_d_share - log_al_share)
+  filter(grad_y < 2024) %>%
+  group_by(grad_y) %>%
+  summarize(N_full = n(),
+            N_AL_full = sum(state == 'Alabama'))
+
+ipeds_origins <- iv %>%
+  filter(grad_y < 2024,
+         state != 'Alabama') %>%
+  transmute(grad_y,
+            d_state = state,
+            N_origin_ipeds = enroll)
+
+ipeds_origins_offsets <- iv %>%
+  filter(state != 'Alabama') %>%
+  transmute(origin_grad_y = grad_y,
+            d_state = state,
+            N_origin_ipeds_offset = enroll)
+
+ipeds_origin_years <- sort(unique(ipeds_origins_offsets$origin_grad_y))
+
+obs_al_cohorts <- join %>%
+  ungroup() %>%
+  filter(o_state == 'Alabama',
+         grad_y < 2024) %>%
+  count(grad_y, name = 'M_AL_obs')
+
+obs_al_dest <- join %>%
+  ungroup() %>%
+  filter(o_state == 'Alabama',
+         d_state != 'Alabama',
+         grad_y < 2024) %>%
+  count(grad_y, d_state, name = 'N_dest_obs')
+
+obs_al_home <- join %>%
+  ungroup() %>%
+  filter(o_state == 'Alabama',
+         d_state == 'Alabama',
+         grad_y < 2024) %>%
+  count(grad_y, name = 'N_home_obs')
+
+pull_factors_dest <- pull_factors %>%
+  rename(d_state = state,
+         grad_y = y) %>%
+  select(d_state, grad_y, ur, net_rate)
+
+share_ins <- expand_grid(d_state = states$state[states$state != 'Alabama'],
+                         grad_y = sort(unique(full_cohorts$grad_y))) %>%
+  left_join(full_cohorts) %>%
+  left_join(ipeds_origins) %>%
+  left_join(obs_al_cohorts) %>%
+  left_join(obs_al_dest) %>%
+  left_join(obs_al_home) %>%
+  left_join(pull_factors_dest) %>%
+  mutate(N_origin_ipeds = if_else(is.na(N_origin_ipeds), 0, N_origin_ipeds),
+         N_dest_obs = if_else(is.na(N_dest_obs), 0L, N_dest_obs),
+         N_home_obs = if_else(is.na(N_home_obs), 0L, N_home_obs),
+         p_dest = N_dest_obs / M_AL_obs,
+         d_share = p_dest,
+         o_share = N_origin_ipeds / N_full * 100,
+         log_d_share = if_else(p_dest > 0, log(p_dest), NA_real_),
+         log_al_share = if_else(N_home_obs > 0, log(N_home_obs / M_AL_obs), NA_real_),
+         diff_log_d_share = log_d_share - log_al_share,
+         N_dest = p_dest * N_AL_full,
+         N_origin = N_origin_ipeds) %>%
+  filter(N_full > 0,
+         M_AL_obs > 0) %>%
+  left_join(ipeds_origins_offsets %>%
+              transmute(d_state,
+                        grad_y = origin_grad_y + 1,
+                        N_origin_lag = N_origin_ipeds_offset)) %>%
+  left_join(ipeds_origins_offsets %>%
+              transmute(d_state,
+                        grad_y = origin_grad_y + 2,
+                        N_origin_lag2 = N_origin_ipeds_offset)) %>%
+  left_join(ipeds_origins_offsets %>%
+              transmute(d_state,
+                        grad_y = origin_grad_y - 1,
+                        N_origin_lead = N_origin_ipeds_offset)) %>%
+  left_join(ipeds_origins_offsets %>%
+              transmute(d_state,
+                        grad_y = origin_grad_y - 2,
+                        N_origin_lead2 = N_origin_ipeds_offset)) %>%
+  mutate(N_origin_lag = if_else(is.na(N_origin_lag) & ((grad_y - 1) %in% ipeds_origin_years), 0, N_origin_lag),
+         N_origin_lag2 = if_else(is.na(N_origin_lag2) & ((grad_y - 2) %in% ipeds_origin_years), 0, N_origin_lag2),
+         N_origin_lead = if_else(is.na(N_origin_lead) & ((grad_y + 1) %in% ipeds_origin_years), 0, N_origin_lead),
+         N_origin_lead2 = if_else(is.na(N_origin_lead2) & ((grad_y + 2) %in% ipeds_origin_years), 0, N_origin_lead2))
 
 # Save student- and destination-level datasets for use in GruMPS estimator
 
@@ -407,11 +460,48 @@ ggsave(paste0(pathFigures, 'analysis_main/merge_sample_size.png'), width = 6, he
 
 # Share regressions -------------------------------------------------------------
 
-# Simple spec: raw # of students to/from the state
-felm(N_dest ~ N_origin | factor(d_state) | 0 | d_state, data = share_ins) %>%
+# Residualized scatterplot for main probability-adjusted count specification
+resid_share_ins <- share_ins %>%
+  filter(grad_y != 2020) %>%
+  mutate(N_dest_resid = resid(lm(N_dest ~ factor(d_state) + factor(grad_y), data = .)),
+         N_origin_resid = resid(lm(N_origin ~ factor(d_state) + factor(grad_y), data = .)))
+
+ggplot(resid_share_ins, aes(x = N_origin_resid, y = N_dest_resid)) +
+  geom_hline(yintercept = 0, col = 'gray80', lty = 2) +
+  geom_vline(xintercept = 0, col = 'gray80', lty = 2) +
+  geom_point(col = '#21908CFF', alpha = 0.35, size = 2) +
+  geom_smooth(method = 'lm', se = F, col = '#440154FF', lwd = 1) +
+  labs(x = 'Residualized origin count',
+       y = 'Residualized destination count',
+       title = 'Residualized destination and origin counts') +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0))
+ggsave(paste0(pathFigures, 'analysis_main/resid_origin_dest_scatter.png'), width = 6, height = 5)
+
+# Simple spec: probability-adjusted # of students to/from the state
+felm(N_dest ~ N_origin | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
   summary(robust = T)
-# Now including cohort effects
-felm(N_dest ~ N_origin | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins) %>%
+
+# Once-lagged origin count
+felm(N_dest ~ N_origin + N_origin_lag | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
+  summary(robust = T)
+
+# One lag and one lead of the origin count
+felm(N_dest ~ N_origin + N_origin_lag + N_origin_lead | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
+  summary(robust = T)
+
+# With controls
+felm(N_dest ~ N_origin + N_origin_lag + N_origin_lead + ur + net_rate | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
+  summary(robust = T)
+
+# Now including state-specific trends
+felm(N_dest ~ N_origin + N_origin_lag + N_origin_lead + ur + net_rate | factor(d_state) + factor(grad_y) + factor(d_state):grad_y | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
+  summary(robust = T)
+
+# Two lags of the origin count
+felm(N_dest ~ N_origin + N_origin_lag + N_origin_lag2 + ur + net_rate | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
   summary(robust = T)
 
 # Plain logit OLS (full sample, unconditional)
@@ -484,22 +574,30 @@ share_ins <- iv %>%
   rename(d_state = state) %>%
   right_join(share_ins)
 
-# Simple spec: raw # of students to/from the state
+# First stages for probability-adjusted count specification
 
-# Robust SE, not clustered
-# First stage
-felm(N_origin ~ adm_rate | factor(d_state), data = share_ins) %>%
-  summary(robust = T)
-# IV
-felm(N_dest ~ 0 | factor(d_state) | (N_origin ~ adm_rate), data = share_ins) %>%
+share_ins_iv <- share_ins %>%
+  filter(grad_y != 2020,
+         !is.na(adm_rate))
+
+# No controls; robust SE, not clustered
+felm(N_origin ~ adm_rate | factor(d_state) + factor(grad_y),
+     data = share_ins_iv) %>%
   summary(robust = T)
 
-# Robust, clustered SE
-# First stage
-felm(N_origin ~ adm_rate | factor(d_state) | 0 | d_state, data = share_ins) %>%
+# No controls; clustered SE
+felm(N_origin ~ adm_rate | factor(d_state) + factor(grad_y) | 0 | d_state,
+     data = share_ins_iv) %>%
   summary(robust = T)
-# IV
-felm(N_dest ~ 0 | factor(d_state) | (N_origin ~ adm_rate) | d_state, data = share_ins) %>%
+
+# IV; robust SE, not clustered
+felm(N_dest ~ 0 | factor(d_state) + factor(grad_y) | (N_origin ~ adm_rate),
+     data = share_ins_iv) %>%
+  summary(robust = T)
+
+# IV; clustered SE
+felm(N_dest ~ 0 | factor(d_state) + factor(grad_y) | (N_origin ~ adm_rate) | d_state,
+     data = share_ins_iv) %>%
   summary(robust = T)
 
 # Plain logit IV

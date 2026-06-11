@@ -46,8 +46,8 @@ oos_shares <- ef %>%
   filter(!is.na(STABBR))
 
 # Balance the panel
-oos_shares_bal <- data.frame(y = rep(2000:2019, n = length(unique(oos_shares$STABBR))),
-                             STABBR = rep(unique(oos_shares$STABBR), each = length(2000:2019))) %>%
+oos_shares_bal <- data.frame(y = rep(2000:2021, n = length(unique(oos_shares$STABBR))),
+                             STABBR = rep(unique(oos_shares$STABBR), each = length(2000:2021))) %>%
   left_join(oos_shares) %>%
   select(-c('FIPS', 'UNITID')) %>%
   mutate(enroll = if_else(is.na(enroll), 0, enroll)) %>%
@@ -62,8 +62,8 @@ felm(enroll ~ adm_rate | factor(STABBR) + factor(y), data = oos_shares_bal %>% f
 # Now try trimming outlier admission rates and states with very little UA enrollment ever
 
 # Remove NA admissions rates
-oos_shares_bal <- oos_shares_bal %>%
-  filter(!is.na(adm_rate))
+#oos_shares_bal <- oos_shares_bal %>%
+#  filter(!is.na(adm_rate))
 
 # Save for analysis file
 saveRDS(oos_shares_bal, paste0(pathHome, 'data/selectivity_iv.rds'))
