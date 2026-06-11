@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 7-29-24
+## Last Modified: 06-08-2026
 
 ## convert alabama commencement pdf to text file
 #=====================================================================
@@ -14,32 +14,39 @@ rm(list=ls())
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                dplyr,fixest,ggmap,stargazer,sjmisc,
-               Hmisc,tseries,DescTools,here,censusapi,
+               Hmisc,tseries,DescTools,censusapi,
                tidycensus,ggiplot,educationdata,foreach,
                doParallel,readxl,did,ggExtra,pdftools)
 
 #=====================================================================
-# 1 - read in pdf file
+# 1 - set shared project paths
 #=====================================================================
 
-pdf_08 <- pdf_text(here("data","ua_spring08.pdf"))
-pdf_09 <- pdf_text(here("data","ua_spring09.pdf"))
-pdf_10 <- pdf_text(here("data","ua_spring10.pdf"))
-pdf_11 <- pdf_text(here("data","ua_spring11.pdf"))
-pdf_12 <- pdf_text(here("data","ua_spring12.pdf"))
-pdf_13 <- pdf_text(here("data","ua_spring13.pdf"))
-pdf_14 <- pdf_text(here("data","ua_spring14.pdf"))
-pdf_15 <- pdf_text(here("data","ua_spring15.pdf"))
-pdf_16 <- pdf_text(here("data","ua_spring16.pdf"))
-pdf_17 <- pdf_text(here("data","ua_spring17.pdf"))
-pdf_22 <- pdf_text(here("data","ua_spring22.pdf"))
-pdf_23 <- pdf_text(here("data","ua_spring23.pdf"))
-pdf_24 <- pdf_text(here("data","ua_spring24.pdf"))
+PATH_TO_OUTPUT <- "/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project"
+PATH_TO_DATA <- file.path(PATH_TO_OUTPUT, "data")
+
+#=====================================================================
+# 2 - read in pdf file
+#=====================================================================
+
+pdf_08 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring08.pdf"))
+pdf_09 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring09.pdf"))
+pdf_10 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring10.pdf"))
+pdf_11 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring11.pdf"))
+pdf_12 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring12.pdf"))
+pdf_13 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring13.pdf"))
+pdf_14 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring14.pdf"))
+pdf_15 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring15.pdf"))
+pdf_16 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring16.pdf"))
+pdf_17 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring17.pdf"))
+pdf_22 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring22.pdf"))
+pdf_23 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring23.pdf"))
+pdf_24 <- pdf_text(file.path(PATH_TO_DATA, "ua_spring24.pdf"))
 
 pdf_08_clean <- pdf_08[c(11:43)]
 
 # Extract text from PDF
-pdf_dt <- pdf_data(here("data","ua_spring23.pdf"))
+pdf_dt <- pdf_data(file.path(PATH_TO_DATA, "ua_spring23.pdf"))
 # example with page 35
 page_35 <- pdf_dt[[35]]
 page_35_text_elements <- page_35$text

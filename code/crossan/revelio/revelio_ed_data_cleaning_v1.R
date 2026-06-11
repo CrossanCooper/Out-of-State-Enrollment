@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 11-14-24
+## Last Modified: 06-08-2026
 
 ## file use: find UA students in revelio education data
 ##
@@ -20,16 +20,23 @@ rm(list=ls())
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                dplyr,fixest,ggmap,stargazer,sjmisc,
-               Hmisc,tseries,DescTools,here,censusapi,
+               Hmisc,tseries,DescTools,censusapi,
                tidycensus,ggiplot,educationdata,foreach,
                doParallel,readxl,did,ggExtra)
 
 #=====================================================================
-# 1 - read and edit the education data
+# 1 - set shared project paths
+#=====================================================================
+
+PATH_TO_OUTPUT <- "/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project"
+PATH_TO_REVELIO <- file.path(PATH_TO_OUTPUT, "revelio_data")
+
+#=====================================================================
+# 2 - read and edit the education data
 #=====================================================================
 
 # Define the file path and chunk size
-file_path <- here("revelio_data", "revelio_query_ed.csv")
+file_path <- file.path(PATH_TO_REVELIO, "revelio_query_ed.csv")
 chunk_size <- 2500000
 
 # Initialize the starting row
@@ -75,8 +82,8 @@ repeat {
 # 131,296 unique students at UA flagship
 ua_dt <- bama_dt[university_name == "The University of Alabama" | university_name == "University of Alabama Department of Chemical and Biological Engineering"]
 
-fwrite(bama_dt, here("revelio_data","bama_students.csv"))
-fwrite(ua_dt, here("revelio_data","tuscaloosa_students.csv"))
+fwrite(bama_dt, file.path(PATH_TO_REVELIO, "bama_students.csv"))
+fwrite(ua_dt, file.path(PATH_TO_REVELIO, "tuscaloosa_students.csv"))
 
 # unique UA userid's
 
@@ -84,4 +91,4 @@ ua_ids <- ua_dt[,.N,.(user_id)]
 
 ids_list <- ua_ids[,1]
 
-fwrite(ids_list, here("revelio_data","tuscaloosa_student_id_list.csv"))
+fwrite(ids_list, file.path(PATH_TO_REVELIO, "tuscaloosa_student_id_list.csv"))

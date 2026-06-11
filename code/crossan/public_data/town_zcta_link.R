@@ -1,6 +1,6 @@
 #=====================================================================
 ## Created by: Crossan Cooper
-## Last Modified: 10-29-24
+## Last Modified: 06-08-2026
 
 ## query HUD API and link town data to ACS data
 # Step 1: Town-ZIP from HUD (@crossan: ERRORS HERE)
@@ -19,12 +19,20 @@ rm(list=ls())
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse,data.table,ggplot2,skimr,
                dplyr,fixest,ggmap,stargazer,sjmisc,httr,
-               Hmisc,tseries,DescTools,here,censusapi,
+               Hmisc,tseries,DescTools,censusapi,
                tidycensus,ggiplot,educationdata,foreach,
                doParallel,readxl,did,ggExtra,stringi)
 
 #=====================================================================
-# 1 - read and edit hud data (uses 2020 Census geographies)
+# 1 - set shared project paths
+#=====================================================================
+
+PATH_TO_OUTPUT <- "/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project"
+PATH_TO_DATA <- file.path(PATH_TO_OUTPUT, "data")
+PATH_TO_FIGURES <- file.path(PATH_TO_OUTPUT, "figures")
+
+#=====================================================================
+# 2 - read and edit hud data (uses 2020 Census geographies)
 #=====================================================================
 
 key <- "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI2IiwianRpIjoiNWNhMzg4NjUzMWJmNGM4NDdjNDE4MTY5YzJjN2FjYjliYjc5M2EzMGE5ZWEyMWFkOTU3NDhkOWMxNjIwZDgzZjBjNTAxNTFkODMyOWU3ZTAiLCJpYXQiOjE3MzAxMzg0ODYuMzY4MTM0LCJuYmYiOjE3MzAxMzg0ODYuMzY4MTM2LCJleHAiOjIwNDU2NzEyODYuMzY0MTEzLCJzdWIiOiI3MzY1OCIsInNjb3BlcyI6W119.gM6LUsRyWZ_wSgR2OPCcPiouMfNEuRPxGIAgEHqVMd7dpP0bgZwE88_YODbZkViPtHEDD5v4o7JUjoQPNnzoSw"
@@ -46,7 +54,7 @@ output_unique_dt <- output_unique_dt[,c("zip","city","state")]
 
 # write the file to output
 
-fwrite(output_unique_dt, file = here("data","hud_city_zip_crosswalk.csv"))
+fwrite(output_unique_dt, file = file.path(PATH_TO_DATA, "hud_city_zip_crosswalk.csv"))
 
 #=====================================================================
 # 2 - read in zip level census data to describe cities / towns
@@ -76,11 +84,11 @@ acs_2022_dt <- setDT(acs_2022)
 
 ### ii. merge with zip - zcta crosswalk
 
-zip_zcta_crosswalk_dt <- fread(here("data","ZIP Code to ZCTA Crosswalk.csv"))
+zip_zcta_crosswalk_dt <- fread(file.path(PATH_TO_DATA, "ZIP Code to ZCTA Crosswalk.csv"))
 
 ### iii. merge with zip - town crosswalk
 
-zip_town_crosswalk_dt <- fread(here("data","hud_city_zip_crosswalk.csv"))
+zip_town_crosswalk_dt <- fread(file.path(PATH_TO_DATA, "hud_city_zip_crosswalk.csv"))
 setnames(zip_town_crosswalk_dt, c("zip"), c("ZIP_CODE"))
 
 ### iv(a). merge zip-town with zip-zcta
@@ -153,7 +161,7 @@ all_weighted_outputs_clean <- all_weighted_outputs[, -c(5:6,8:9,11:12)]
 # this is using the 2018-2022 ACS 
 all_weighted_outputs_final <- all_weighted_outputs_clean[!is.na(median_hh_income)]
 
-fwrite(all_weighted_outputs_final, here("data","acs_2018_2022_town_estimates.csv"))
+fwrite(all_weighted_outputs_final, file.path(PATH_TO_DATA, "acs_2018_2022_town_estimates.csv"))
 
 
 #=====================================================================
@@ -162,8 +170,8 @@ fwrite(all_weighted_outputs_final, here("data","acs_2018_2022_town_estimates.csv
 
 ### i. merge commencement and ACS data
 
-alabama_data <- fread(here("data","all_alabama_data.csv"))
-acs_data <- fread(here("data","acs_2018_2022_town_estimates.csv"))
+alabama_data <- fread(file.path(PATH_TO_DATA, "all_alabama_data.csv"))
+acs_data <- fread(file.path(PATH_TO_DATA, "acs_2018_2022_town_estimates.csv"))
 
 acs_data[, town := tolower(city)]
 acs_data[, state := tolower(state)]
@@ -209,7 +217,7 @@ scale_y_continuous(limits = c(-5000,25000),
 
 print(income_relative_to_2006_levels)
 
-ggsave(here("figures","income_relative_to_2006_levels.png"),
+ggsave(file.path(PATH_TO_FIGURES, "income_relative_to_2006_levels.png"),
        plot = income_relative_to_2006_levels,width = 8, height = 4.5)
 
 
@@ -234,7 +242,7 @@ income_relative_to_2006_percent <- ggplot(average_income_by_year, aes(x = Year, 
 
 print(income_relative_to_2006_percent)
 
-ggsave(here("figures","income_relative_to_2006_percent.png"),
+ggsave(file.path(PATH_TO_FIGURES, "income_relative_to_2006_percent.png"),
        plot = income_relative_to_2006_percent,width = 8, height = 4.5)
 
 
