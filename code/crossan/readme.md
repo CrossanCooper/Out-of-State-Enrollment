@@ -1,6 +1,6 @@
 # Crossan Code Overview
 
-Last updated: 2026-06-08
+Last updated: 2026-06-11
 
 This folder contains Crossan-authored code for the admissions project. Ryan's
 main analysis scripts remain in the root `code/` folder. The data setup is not
@@ -18,11 +18,13 @@ data locations stable while letting Crossan code live under `code/crossan/`.
 
 ```text
 code/crossan/
-  _shared/        Shared path configuration
+  _shared/        Shared path configuration file (define file paths)
   commencement/   UA commencement cleaning, linkage, and descriptives
   public_data/    Public data pulls and exploratory public-data figures
   recruiting/     Admissions visit cleaning and town-level visit effects
   revelio/        Revelio education/profile/job-spell extraction helpers
+  market_iv/      Code for evaluating market access shift-share IV
+  wisconsin/      Wisconsin FOIA graduate-processing helper
 ```
 
 ## Main Order Of Operations
@@ -38,7 +40,7 @@ revelio/revelio_ed_data_cleaning_v1.R
 
 Finds UA/Tuscaloosa student records in Revelio education data.
 
-Important outputs:
+Core market-IV workflow outputs:
 
 ```text
 revelio_data/bama_students.csv
@@ -158,7 +160,102 @@ Produces exploratory Chetty/Deming/Friedman public-data figures. These are
 motivating/descriptive outputs rather than core data handoffs to Ryan's current
 main analysis scripts.
 
-### 4. Recruiting Visit Cleaning
+### 4. Market IV For Location Spillovers
+
+```text
+market_iv/build_market_iv.py
+```
+
+Builds the state-by-cohort IPEDS/commencement panels and the 2000
+peer-flagship market-share instrument for the linked-only location-spillover
+count model. The preferred instrument uses each origin state's 2000 share of
+non-Alabama-origin out-of-state first-time students at non-Alabama public
+flagships, interacted with leave-state-out UA nonresident enrollment growth.
+This script only constructs data products; regression diagnostics are estimated
+in R.
+
+Important outputs:
+
+```text
+data/market_iv/data/market_iv_panel.csv
+data/market_iv/data/ua_ipeds_origin_entry_panel.csv
+data/market_iv/data/ua_commencement_origin_panel.csv
+data/market_iv/tables/market_exposure_by_state.csv
+data/market_iv/tables/first_stage_diagnostics.csv
+data/market_iv/tables/state_growth_diagnostics.csv
+data/market_iv/market_iv_build_summary.md
+figures/market-iv/ipeds_growth_vs_exposure.png
+figures/market-iv/reduced_form_scatterplots.png
+```
+
+```text
+market_iv/estimate_market_iv_diagnostics.R
+```
+
+Reads the market-IV panels, estimates the first-stage-style diagnostic
+regressions with `fixest::feols()`, writes the diagnostic tables, and writes the
+market-IV figures under `figures/market-iv/`. The reduced-form scatterplot is
+saved as both `ipeds_growth_vs_exposure.png` and
+`reduced_form_scatterplots.png`.
+
+```text
+market_iv/linked_only_spillover_ols_iv.R
+```
+
+Estimates the linked-only OLS and leave-state-out IV versions of the
+state-by-cohort inflow/outflow count model with `fixest::feols()`. The script
+uses `pacman::p_load()` for package loading and is run directly with `Rscript`;
+there is no Makefile workflow in this folder.
+
+Important outputs:
+
+```text
+data/market_iv/linked_only/linked_only_balanced_panel_with_iv.csv
+data/market_iv/linked_only/linked_only_ols_iv_summary.csv
+data/market_iv/linked_only/linked_only_ols_iv_summary.md
+```
+
+```text
+market_iv/build_baseline_year_robustness_iv.py
+market_iv/estimate_baseline_year_robustness.R
+```
+
+Builds and estimates alternative-baseline versions of the same leave-state-out
+market IV, holding the linked-only estimating panel fixed.
+
+Important outputs:
+
+```text
+data/market_iv/baseline_year_robustness/baseline_year_ipeds_coverage.csv
+data/market_iv/baseline_year_robustness/baseline_year_robustness_z_panel.csv
+data/market_iv/baseline_year_robustness/baseline_year_robustness_estimates.csv
+data/market_iv/baseline_year_robustness/baseline_year_robustness_compact.csv
+data/market_iv/baseline_year_robustness/baseline_year_robustness.md
+```
+
+Run order from `code/crossan/market_iv/`:
+
+```bash
+/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/pgp-ipeds/ipeds-database/.venv/bin/python build_market_iv.py
+Rscript estimate_market_iv_diagnostics.R
+Rscript linked_only_spillover_ols_iv.R
+/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/pgp-ipeds/ipeds-database/.venv/bin/python build_baseline_year_robustness_iv.py
+Rscript estimate_baseline_year_robustness.R
+```
+
+The default IPEDS DuckDB input is the shared main-project copy:
+
+```text
+/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/pgp-ipeds/ipeds-database/ipeds.duckdb
+```
+
+The market-IV scripts write CSV and Markdown outputs under
+`/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/market_iv`.
+Figures are written separately under
+`/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/figures/market-iv`.
+The code path intentionally does not produce memo PDF or TeX files.
+
+### 5. Recruiting Visit Cleaning
 
 ```text
 recruiting/ozan_recruiting_cleaning_v1.R
@@ -182,7 +279,7 @@ data/full_ua_recruiting_scrape.csv
 This file is the key admissions-visit input for the town-level recruiting
 pipeline.
 
-### 5. Recruiting Town-Level Visit Effects
+### 6. Recruiting Town-Level Visit Effects
 
 ```text
 recruiting/run_recruiting_town_pipeline.R
@@ -273,6 +370,10 @@ Crossan outputs.
 | `data/acs_2018_2022_town_estimates.csv` | `public_data/town_zcta_link.R` | `analysis_main.R` | Town-level ACS income/covariates attached to commencement-origin towns. |
 | `data/full_ua_recruiting_scrape.csv` | `recruiting/ozan_hmtl_cleaning_v1.R` | Recruiting pipeline | Main admissions visit input; not currently a Ryan main-analysis input. |
 | `town_matching/output/*` | `recruiting/run_recruiting_town_pipeline.R` | Recruiting/admissions-visit tables | Current admissions officer visit panels, coefficient tables, diagnostics, and figures. |
+| `data/market_iv/data/market_iv_panel.csv` | `market_iv/build_market_iv.py` | Market-IV spillover checks | State-by-entry-cohort market-IV panel. Figures from this workflow live under `figures/market-iv/`, not under `data/market_iv/`. |
+| `data/market_iv/tables/first_stage_diagnostics.csv` | `market_iv/estimate_market_iv_diagnostics.R` | Market-IV first-stage checks | Diagnostic regressions estimated with `fixest::feols()` and origin-state clustered standard errors. |
+| `data/market_iv/linked_only/linked_only_ols_iv_summary.csv` | `market_iv/linked_only_spillover_ols_iv.R` | Market-IV spillover checks | Linked-only OLS, first-stage, and IV estimates from `fixest::feols()` with destination-state clustered standard errors. |
+| `data/market_iv/baseline_year_robustness/*` | `market_iv/build_baseline_year_robustness_iv.py`, `market_iv/estimate_baseline_year_robustness.R` | Market-IV robustness checks | Alternative-baseline IV panels and estimates. |
 
 ## Practical Notes
 
@@ -280,6 +381,11 @@ Crossan outputs.
   scripts are updated at the same time.
 - The root `code/` folder is Ryan's active analysis area. Crossan code should
   stay under `code/crossan/`.
+- `market_iv/` scripts are run directly with the shared IPEDS Python
+  environment and `Rscript`; do not use a Makefile for this workflow.
+- Market-IV regressions should be estimated in R with `fixest::feols()`.
+- Market-IV figures should be written to `figures/market-iv/`, while market-IV
+  CSV and Markdown outputs should remain under `data/market_iv/`.
 - The recruiting wrapper is designed for RStudio. It still calls Python and R
   sub-scripts internally via `system2()`, so RStudio needs access to `python3`
   and `Rscript`.
