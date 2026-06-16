@@ -584,4 +584,4 @@ irr_plot <- ggplot(irr_plot_data,
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
 
-ggsave(paste0(pathFigures, 'irr_by_act_score.png'), width = 6.5, height = 5)
+ggsave(paste0(pathFigures, 'irr_by_act_score.png'), width = 6, height = 4)

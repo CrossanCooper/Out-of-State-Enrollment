@@ -606,7 +606,7 @@ ua_revenue %>%
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
         legend.position = 'right',
         plot.title = element_text(hjust = 0.5))
-ggsave(paste0(pathFigures, 'ipeds/ua_trends/approp_vs_tuition.png'), width = 8, height = 5)
+ggsave(paste0(pathFigures, 'ipeds/ua_trends/approp_vs_tuition.png'), width = 6, height = 4)
 
 # Tuition revenues and state appropriations per undergraduate
 ua_revenue %>%
@@ -630,7 +630,7 @@ ua_revenue %>%
   theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
         legend.position = 'right',
         plot.title = element_text(hjust = 0.5))
-ggsave(paste0(pathFigures, 'ipeds/ua_trends/approp_vs_tuition_per_undergrad.png'), width = 7, height = 5)
+ggsave(paste0(pathFigures, 'ipeds/ua_trends/approp_vs_tuition_per_undergrad.png'), width = 6, height = 3.5)
 
 # Spending sources
 # Omit categories F1C101 for net grants/fellowships and F1C031 for public service

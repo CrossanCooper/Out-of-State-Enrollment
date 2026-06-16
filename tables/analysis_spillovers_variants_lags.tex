@@ -1,0 +1,33 @@
+\begin{table}[!htbp]
+    \centering
+    \caption{Lag and Lead Location Spillover Estimates}
+    \resizebox{\textwidth}{!}{
+    \begin{tabular}{lcccc}
+        \toprule
+        & \multicolumn{4}{c}{Outcome: Alabama-Origin Outmigration per 100 OOS Students} \\
+        \cmidrule(lr){2-5}
+        & Cohort-scaled count ($N^o$) & Linked-sample count ($N^o$) & Log-share difference ($d^o$) & PPML grouped choice ($d^o$) \\
+        & (1) & (2) & (3) & (4) \\
+        \midrule
+        \textit{Panel A: One Lag} & \multicolumn{4}{c}{} \\
+        \cmidrule(lr){1-1} \cmidrule(lr){2-5}
+        Main effect & 11.264$^{***}$ & 18.308$^{***}$ & 13.405$^{*}$ & 5.403$^{*}$ \\
+        & (3.021) & (5.355) & (7.379) & (2.940) \\
+        Lagged effect & -3.129 & -10.028$^{***}$ & -5.450 & 2.370 \\
+        & (2.370) & (3.233) & (7.908) & (3.553) \\
+        \midrule
+        \textit{Panel B: One Lag and One Lead} & \multicolumn{4}{c}{} \\
+        \cmidrule(lr){1-1} \cmidrule(lr){2-5}
+        Main effect & 10.534$^{***}$ & 7.352$^{**}$ & 12.389$^{*}$ & 7.713$^{**}$ \\
+        & (3.138) & (3.260) & (7.401) & (3.268) \\
+        Lagged effect & -3.190 & -2.916 & -5.730 & 3.157 \\
+        & (2.348) & (2.918) & (8.258) & (3.589) \\
+        Lead effect & 0.912 & 5.694$^{**}$ & 1.374 & -3.601$^{*}$ \\
+        & (2.433) & (2.479) & (4.427) & (1.962) \\
+        \midrule
+        \multicolumn{5}{l}{\parbox{0.98\textwidth}{Note: Entries are average marginal effects interpreted as in-state students leaving Alabama per 100 additional out-of-state students.}} \\
+        \multicolumn{5}{l}{\parbox{0.98\textwidth}{All specifications use state and cohort fixed effects and include unemployment and net-migration controls. Standard errors are reported in parentheses and clustered at the state level. $^*$, $^{**}$, and $^{***}$ denote significance at the 10\%, 5\%, and 1\% levels.}} \\
+        \bottomrule
+    \end{tabular}}
+    \label{tbl:spillovers_variants_lags}
+\end{table}

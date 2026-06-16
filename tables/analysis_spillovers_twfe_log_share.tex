@@ -1,0 +1,29 @@
+\begin{table}[!htbp]
+    \centering
+    \caption{Log-Share-Difference Spillover Estimates}
+    \resizebox{\textwidth}{!}{
+    \begin{tabular}{lcccc}
+        \toprule
+        & \multicolumn{4}{c}{Average Marginal Effect of 100 OOS Students} \\
+        \cmidrule(lr){2-5}
+        & \multicolumn{2}{c}{Linear Cohort Trend} & \multicolumn{2}{c}{Cohort Fixed Effects} \\
+        \cmidrule(lr){2-3} \cmidrule(lr){4-5}
+        & (1) & (2) & (3) & (4) \\
+        \midrule
+        OLS & 9.65$^{**}$ & 9.65$^{**}$ & 8.77$^{**}$ & 9.04$^{**}$ \\
+        & (4.18) & (4.21) & (4.40) & (4.40) \\
+        IV & 15.04$^{**}$ & 15.12$^{**}$ & 11.50 & 12.82$^{*}$ \\
+        & (7.37) & (7.44) & (7.43) & (7.45) \\
+        First stage & 0.013$^{***}$ & 0.013$^{***}$ & 0.013$^{***}$ & 0.013$^{***}$ \\
+        First-stage F-statistic & 49.60 & 48.45 & 48.15 & 48.10 \\
+        $N$ & 648 & 648 & 648 & 648 \\
+        \midrule
+        Controls & No & Yes & No & Yes \\
+        Linear cohort trend & Yes & Yes & No & No \\
+        Cohort fixed effects & No & No & Yes & Yes \\
+        \midrule
+        \multicolumn{5}{l}{\parbox{0.98\textwidth}{Note: Entries in the OLS and IV rows are average marginal effects interpreted as in-state students leaving Alabama per 100 additional out-of-state students. The treatment is the IPEDS enrollment-by-residency origin share $d^o$. All specifications include destination-state fixed effects, omit 2020, and cluster standard errors at the state level. $^*$, $^{**}$, and $^{***}$ denote significance at the 10\%, 5\%, and 1\% levels.}} \\
+        \bottomrule
+    \end{tabular}}
+    \label{tbl:spillovers_twfe_log_share}
+\end{table}

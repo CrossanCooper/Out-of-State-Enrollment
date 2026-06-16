@@ -1447,8 +1447,8 @@ print(net_tuition_schedule_plot)
 ggsave(
   paste0(pathFigures, "net_tuition_schedule.png"),
   net_tuition_schedule_plot,
-  width = 6.5,
-  height = 5
+  width = 5.5,
+  height = 4
 )
 
 # Full first-year institutional grant allocation for the expansive

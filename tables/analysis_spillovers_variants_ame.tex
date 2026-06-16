@@ -1,0 +1,27 @@
+\begin{table}[!htbp]
+    \centering
+    \caption{Location Spillover Estimates Across Specifications}
+    \resizebox{0.86\textwidth}{!}{
+    \begin{tabular}{lcccc}
+        \toprule
+        & \multicolumn{4}{c}{Outcome: Alabama-Origin Outmigration per 100 OOS Students} \\
+        \cmidrule(lr){2-5}
+        & \multicolumn{2}{c}{Linear Cohort Trend} & \multicolumn{2}{c}{Cohort Fixed Effects} \\
+        \cmidrule(lr){2-3} \cmidrule(lr){4-5}
+        Specification & OLS & IV & OLS & IV \\
+        \midrule
+        Cohort-scaled count ($N^o$) & 8.420$^{**}$ & 3.915 & 8.247$^{**}$ & 3.147 \\
+        & (3.876) & (2.654) & (3.813) & (2.698) \\
+        Linked-sample count ($N^o$) & 9.706$^{***}$ & 5.340$^{**}$ & 9.550$^{***}$ & 3.886$^{*}$ \\
+        & (3.152) & (2.279) & (3.035) & (2.226) \\
+        Log-share difference ($d^o$) & 9.652$^{**}$ & 15.119$^{**}$ & 9.039$^{**}$ & 12.819$^{*}$ \\
+        & (4.206) & (7.441) & (4.396) & (7.448) \\
+        PPML grouped choice ($d^o$) & 16.455$^{**}$ & --- & 7.232$^{*}$ & --- \\
+        & (6.677) & --- & (3.955) & --- \\
+        \midrule
+        \multicolumn{5}{l}{\parbox{0.84\textwidth}{Note: Entries are average marginal effects interpreted as in-state students leaving Alabama per 100 additional out-of-state students.}} \\
+        \multicolumn{5}{l}{\parbox{0.84\textwidth}{Standard errors are reported in parentheses and clustered at the state level. $^*$, $^{**}$, and $^{***}$ denote significance at the 10\%, 5\%, and 1\% levels.}} \\
+        \bottomrule
+    \end{tabular}}
+    \label{tbl:spillovers_variants_ame}
+\end{table}

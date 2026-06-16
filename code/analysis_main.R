@@ -39,7 +39,7 @@ dest <- dest %>%
 
 # Define origin shares using IPEDS data
 
-# Bring in IPEDS shares (along with selectivity IV)
+# Bring in IPEDS shares
 iv <- readRDS(paste0(pathHome, 'data/selectivity_iv.rds')) %>%
   left_join(rename(states, STABBR = originState)) %>%
   # Translate year of enrollment to likely graduation year for that cohort
@@ -457,177 +457,6 @@ join %>%
         axis.title.y = element_blank(),
         plot.caption = element_text(hjust = 0))
 ggsave(paste0(pathFigures, 'analysis_main/merge_sample_size.png'), width = 6, height = 5)
-
-# Share regressions -------------------------------------------------------------
-
-# Residualized scatterplot for main probability-adjusted count specification
-resid_share_ins <- share_ins %>%
-  filter(grad_y != 2020) %>%
-  mutate(N_dest_resid = resid(lm(N_dest ~ factor(d_state) + factor(grad_y), data = .)),
-         N_origin_resid = resid(lm(N_origin ~ factor(d_state) + factor(grad_y), data = .)))
-
-ggplot(resid_share_ins, aes(x = N_origin_resid, y = N_dest_resid)) +
-  geom_hline(yintercept = 0, col = 'gray80', lty = 2) +
-  geom_vline(xintercept = 0, col = 'gray80', lty = 2) +
-  geom_point(col = '#21908CFF', alpha = 0.35, size = 2) +
-  geom_smooth(method = 'lm', se = F, col = '#440154FF', lwd = 1) +
-  labs(x = 'Residualized origin count',
-       y = 'Residualized destination count',
-       title = 'Residualized destination and origin counts') +
-  theme_classic() +
-  theme(panel.grid.major.y = element_line(color = 'gray80', linetype = 'dashed'),
-        plot.title = element_text(hjust = 0.5),
-        plot.caption = element_text(hjust = 0))
-ggsave(paste0(pathFigures, 'analysis_main/resid_origin_dest_scatter.png'), width = 6, height = 5)
-
-# Simple spec: probability-adjusted # of students to/from the state
-felm(N_dest ~ N_origin | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
-  summary(robust = T)
-
-# Once-lagged origin count
-felm(N_dest ~ N_origin + N_origin_lag | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
-  summary(robust = T)
-
-# One lag and one lead of the origin count
-felm(N_dest ~ N_origin + N_origin_lag + N_origin_lead | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
-  summary(robust = T)
-
-# With controls
-felm(N_dest ~ N_origin + N_origin_lag + N_origin_lead + ur + net_rate | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
-  summary(robust = T)
-
-# Now including state-specific trends
-felm(N_dest ~ N_origin + N_origin_lag + N_origin_lead + ur + net_rate | factor(d_state) + factor(grad_y) + factor(d_state):grad_y | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
-  summary(robust = T)
-
-# Two lags of the origin count
-felm(N_dest ~ N_origin + N_origin_lag + N_origin_lag2 + ur + net_rate | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins %>% filter(grad_y != 2020)) %>%
-  summary(robust = T)
-
-# Plain logit OLS (full sample, unconditional)
-
-# Base specification (unweighted)
-felm(diff_log_d_share ~ o_share | factor(state) | 0 | state, data = shares %>% filter(state != 'Alabama')) %>%
-  summary(robust = T)
-
-# Filtering to origins with more than 10 students in that cohort
-felm(diff_log_d_share ~ o_share | factor(state) | 0 | state, data = shares %>% filter(state != 'Alabama' & N_origin >= 10)) %>%
-  summary(robust = T)
-
-# Get weights: average # of students going to that destination state
-shares <- shares %>%
-  group_by(state) %>%
-  mutate(avg_N_dest = mean(N_dest))
-# Weighted
-felm(diff_log_d_share ~ o_share | factor(state) | 0 | state, data = shares %>% filter(state != 'Alabama'), weights = shares$avg_N_dest[shares$state != 'Alabama']) %>%
-  summary(robust = T)
-
-# Plain logit OLS (conditional on in-state students)
-
-# Base specification (unweighted)
-felm(diff_log_d_share ~ o_share | factor(d_state) | 0 | d_state, data = share_ins) %>%
-  summary(robust = T)
-
-# Including linear trend
-felm(diff_log_d_share ~ o_share + grad_y | factor(d_state) | 0 | d_state, data = share_ins) %>%
-  summary(robust = T)
-
-# Including cohort FE
-felm(diff_log_d_share ~ o_share | factor(d_state) + factor(grad_y) | 0 | d_state, data = share_ins) %>%
-  summary(robust = T)
-
-# Compute marginal effect of a 1pp increase in out-of-state share
-# Use effect from linear-trend OLS specification
-gamma <- 0.104
-# Get overall choice probabilities
-s <- join %>%
-  # In-state students only
-  filter(o_state == 'Alabama') %>%
-  ungroup() %>%
-  mutate(N = n()) %>%
-  group_by(d_state) %>%
-  summarize(d_share = n() / mean(N)) %>%
-  filter(d_state != 'Alabama') %>%
-  pull(d_share)
-# Get overall origin shares
-d <- join %>%
-  ungroup() %>%
-  mutate(N = n()) %>%
-  group_by(o_state) %>%
-  summarize(o_share = n() / mean(N)) %>%
-  filter(o_state != 'Alabama') %>%
-  pull(o_share)
-# Get each origin state's share of the 1pp increase in OOS share (proportional to
-# base share)
-weights <- d / sum(d)
-marg_effect <- gamma * (weights %*% (s * (1 - sum(s))))
-
-# IV share regressions ----------------------------------------------------------
-
-# Now attach OOS selectivity instrument
-shares <- iv %>%
-  select(grad_y, state, adm_rate) %>%
-  right_join(shares)
-# Also to in-state share data
-share_ins <- iv %>%
-  select(grad_y, state, adm_rate) %>%
-  rename(d_state = state) %>%
-  right_join(share_ins)
-
-# First stages for probability-adjusted count specification
-
-share_ins_iv <- share_ins %>%
-  filter(grad_y != 2020,
-         !is.na(adm_rate))
-
-# No controls; robust SE, not clustered
-felm(N_origin ~ adm_rate | factor(d_state) + factor(grad_y),
-     data = share_ins_iv) %>%
-  summary(robust = T)
-
-# No controls; clustered SE
-felm(N_origin ~ adm_rate | factor(d_state) + factor(grad_y) | 0 | d_state,
-     data = share_ins_iv) %>%
-  summary(robust = T)
-
-# IV; robust SE, not clustered
-felm(N_dest ~ 0 | factor(d_state) + factor(grad_y) | (N_origin ~ adm_rate),
-     data = share_ins_iv) %>%
-  summary(robust = T)
-
-# IV; clustered SE
-felm(N_dest ~ 0 | factor(d_state) + factor(grad_y) | (N_origin ~ adm_rate) | d_state,
-     data = share_ins_iv) %>%
-  summary(robust = T)
-
-# Plain logit IV
-
-# Pooling all origins
-# First stage
-felm(o_share ~ adm_rate | factor(state) | 0 | state, data = shares %>% filter(state != 'Alabama')) %>%
-  summary(robust = T)
-# IV
-felm(diff_log_d_share ~ 0 | factor(state) | (o_share ~ adm_rate) | state, data = shares %>% filter(state != 'Alabama')) %>%
-  summary(robust = T)
-
-# Conditioning on in-state students
-# First stage
-felm(o_share ~ adm_rate | factor(d_state) | 0 | d_state, data = share_ins) %>%
-  summary(robust = T)
-# IV
-felm(diff_log_d_share ~ 0 | factor(d_state) | (o_share ~ adm_rate) | d_state, data = share_ins) %>%
-  summary(robust = T)
-
-# Conditioning on in-state students
-# First stage, with linear trends
-felm(o_share ~ adm_rate  + grad_y | factor(d_state) | 0 | d_state, data = share_ins) %>%
-  summary(robust = T)
-# IV, with linear trends
-felm(diff_log_d_share ~ grad_y | factor(d_state) | (o_share ~ adm_rate) | d_state, data = share_ins) %>%
-  summary(robust = T)
-
-# Save to Stata for weak IV tests
-write_dta(share_ins, paste0(pathHome, 'data/share_ins.dta'))
 
 # Estimate full model -----------------------------------------------------------
 
@@ -1260,7 +1089,7 @@ for (i in 1:nrow(cf_probs)) {
   cf_probs$se[i] <- sqrt(jac_temp %*% vcovCL(mod4, type = 'HC1') %*% t(jac_temp))
   
   # Tracker
-  print(years[i])
+  print(paste0(100 * (i / nrow(cf_probs)), '% done'))
   
 }
 
@@ -1337,7 +1166,7 @@ cf_probs_diff_plot %>%
         legend.position = 'bottom',
         plot.title = element_text(hjust = 0.5),
         plot.caption = element_text(hjust = 0))
-ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE_diffCI.png'), width = 7, height = 5)
+ggsave(paste0(pathFigures, 'analysis_main/cf_prob_AL_cohortFE_diffCI.png'), width = 5.5, height = 4)
 
 # Now get flow exit with error bars
 
