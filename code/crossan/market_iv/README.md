@@ -13,6 +13,7 @@ Rscript estimate_market_iv_diagnostics.R
 Rscript linked_only_spillover_ols_iv.R
 /Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/pgp-ipeds/ipeds-database/.venv/bin/python build_baseline_year_robustness_iv.py
 Rscript estimate_baseline_year_robustness.R
+/Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/pgp-ipeds/ipeds-database/.venv/bin/python build_table4_core_panel.py
 ```
 
 Run the scripts in this order when rebuilding the full market-IV workflow:
@@ -24,6 +25,7 @@ Run the scripts in this order when rebuilding the full market-IV workflow:
 | 3 | `linked_only_spillover_ols_iv.R` | Builds the linked-only inflow/outflow count panel from Revelio and linked commencement files, merges the Step 1 preferred IV, and estimates the five OLS/first-stage/IV specifications with `fixest::feols()`. | Required before the alternative-baseline robustness estimates because it writes the fixed linked-only estimating panel. |
 | 4 | `build_baseline_year_robustness_iv.py` | Builds alternative-baseline versions of the same leave-state-out market IV from early IPEDS years. | Required before Step 5. |
 | 5 | `estimate_baseline_year_robustness.R` | Merges the Step 4 alternative IVs onto the Step 3 linked-only panel and re-estimates the IV model across baseline-year choices. | Produces the baseline-year robustness table and Markdown summary. |
+| 6 | `build_table4_core_panel.py` | Validates the verified wide Table 4 peer-control panel and writes the compact estimation panel, dictionary, peer membership, and README. | Produces the coauthor-facing files in `data/market_iv/peer_controls`. It does not estimate regressions or rebuild peer shares from raw IPEDS data. |
 
 Step 4 can technically be run before Step 3 because it only uses IPEDS and the
 flagship crosswalk. Step 5 requires both Step 3 and Step 4 outputs.
@@ -59,6 +61,9 @@ These roots can be overridden with:
 - `IPEDS_DUCKDB_PATH`
 - `FLAGSHIP_CROSSWALK_PATH`
 - `UA_COMMENCEMENT_PATH`
+- `TABLE4_PEER_CONTROLS_ROOT`
+- `TABLE4_EXPANDED_PANEL_PATH`
+- `TABLE4_CORE_PANEL_PATH`
 
 ## Outputs
 
@@ -67,6 +72,11 @@ CSV and Markdown outputs are written to:
 ```text
 /Users/crossancooper/Dropbox/Professional/active-projects/admissions_project/data/market_iv
 ```
+
+The Table 4 peer-control package is written to `data/market_iv/peer_controls`.
+Its verified wide input must be at
+`data/market_iv/peer_controls/audit/panel_expanded_peer_groups.csv` unless the
+path is overridden.
 
 Figures are written to:
 
