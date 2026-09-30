@@ -767,18 +767,16 @@ pdv_by_act_iv <- data.frame(act = 18:36) %>%
 pdv_by_act_plot_data <- pdv_by_act_iv %>%
   select(
     act,
-    `State total: preferred IV` = state_pdv,
-    `State total: previous no-IV` = previous_no_iv_state_pdv,
-    `University budget` = discounted_tuition_margin
+    `State Budget` = state_pdv,
+    `University Budget` = discounted_tuition_margin
   ) %>%
   pivot_longer(-act, names_to = 'pdv_concept', values_to = 'pdv') %>%
   mutate(
     pdv_concept = factor(
       pdv_concept,
       levels = c(
-        'State total: preferred IV',
-        'State total: previous no-IV',
-        'University budget'
+        'State Budget',
+        'University Budget'
       )
     )
   )
@@ -793,15 +791,14 @@ pdv_by_act_plot <- ggplot(
   scale_y_continuous(labels = scales::dollar) +
   scale_color_manual(
     values = c(
-      'State total: preferred IV' = '#440154FF',
-      'State total: previous no-IV' = '#E6AB02',
-      'University budget' = '#21908CFF'
+      'State Budget' = '#440154FF',
+      'University Budget' = '#21908CFF'
     ),
     name = NULL
   ) +
   labs(
     x = 'ACT score',
-    y = 'PDV at a 2% discount rate'
+    y = 'PDV (2% discount rate)'
   ) +
   theme_classic() +
   theme(
@@ -811,7 +808,7 @@ pdv_by_act_plot <- ggplot(
     legend.position = 'bottom'
   )
 
-fiscal_figure_directory <- file.path('figures', 'analysis_mlogit_iv')
+fiscal_figure_directory <- file.path(pathFigures, 'analysis_mlogit_iv')
 dir.create(fiscal_figure_directory, recursive = TRUE, showWarnings = FALSE)
 ggsave(
   file.path(
@@ -872,5 +869,4 @@ cat(paste(
   'distribution for the earnings calculation.',
   'The entrant-to-graduate conversion is applied exactly once.\n'
 ))
-
 

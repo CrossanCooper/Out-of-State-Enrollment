@@ -13,11 +13,19 @@
 
 source('C:/Users/ryanh/OneDrive/Documents/Grad School/Research/Out-of-State-Enrollment/code/setup.R')
 
+iv_figure_directory <- file.path(pathFigures, 'analysis_mlogit_iv')
+iv_table_directory <- file.path(pathHome, 'tables', 'analysis_mlogit_iv')
+dir.create(iv_figure_directory, recursive = TRUE, showWarnings = FALSE)
+dir.create(iv_table_directory, recursive = TRUE, showWarnings = FALSE)
+
 if (!requireNamespace('fixest', quietly = TRUE)) {
   stop('Package fixest is required for the grouped multinomial-Poisson models.')
 }
 if (!requireNamespace('ggrepel', quietly = TRUE)) {
   stop('Package ggrepel is required for the IV diagnostic figures.')
+}
+if (!requireNamespace('ggpubr', quietly = TRUE)) {
+  stop('Package ggpubr is required for the combined counterfactual figure.')
 }
 library(fixest)
 
@@ -290,6 +298,19 @@ stopifnot(!anyNA(delta_second_stage[c('delta_rel', 'o_share',
 # projection. Both use the same destination-by-cohort observations, controls,
 # and fixed effects. Each cell enters once: destination counts do not enter the
 # structural moments or the regression weights.
+model_second_step_ols_no_controls <- felm(
+  delta_rel ~ o_share |
+    factor(d_state) + factor(grad_y),
+  data = delta_second_stage
+)
+
+model_second_step_iv_no_controls <- felm(
+  delta_rel ~ 1 |
+    factor(d_state) + factor(grad_y) |
+    (o_share ~ z_lso),
+  data = delta_second_stage
+)
+
 model_second_step_ols <- felm(
   delta_rel ~ o_share + unemp + net_mig |
     factor(d_state) + factor(grad_y),
@@ -384,13 +405,21 @@ in_state_cohort_weights <- join %>%
   mutate(cohort_weight = N_in_state_linked / sum(N_in_state_linked)) %>%
   select(grad_y, cohort_weight)
 
+oos_origin_cohort_weights <- join %>%
+  filter(o_state != 'Alabama') %>%
+  count(grad_y, o_state, name = 'N_oos_linked') %>%
+  mutate(origin_cohort_weight = N_oos_linked / sum(N_oos_linked)) %>%
+  select(grad_y, o_state, origin_cohort_weight)
+
 # Return the probability multiplier for a one-percentage-point increase and the
 # count multiplier for 100 additional OOS students. Multiplying either by gamma_in
 # gives the corresponding marginal effect.
 ame_multipliers <- function(model, data) {
-  pred <- data %>%
+  fitted_choices <- data %>%
     mutate(mu_hat = as.numeric(predict(model, newdata = data,
-                                       type = 'response'))) %>%
+                                       type = 'response')))
+
+  pred <- fitted_choices %>%
     filter(o_state == 'Alabama') %>%
     group_by(grad_y) %>%
     mutate(prob = mu_hat / sum(mu_hat)) %>%
@@ -414,10 +443,33 @@ ame_multipliers <- function(model, data) {
              N_AL_cohort * p_al * weighted_destination_prob *
              (10000 / N_cohort))
 
+  oos_by_origin_cohort <- fitted_choices %>%
+    filter(o_state != 'Alabama') %>%
+    group_by(grad_y, o_state) %>%
+    mutate(prob = mu_hat / sum(mu_hat)) %>%
+    ungroup() %>%
+    left_join(origin_weights, by = 'alternative') %>%
+    mutate(origin_weight = replace_na(origin_weight, 0)) %>%
+    group_by(grad_y, o_state) %>%
+    summarize(
+      p_al = prob[alternative == 'Alabama'],
+      weighted_destination_prob = sum(
+        prob[alternative != 'Alabama'] *
+          origin_weight[alternative != 'Alabama']
+      ),
+      .groups = 'drop'
+    ) %>%
+    left_join(oos_origin_cohort_weights, by = c('grad_y', 'o_state')) %>%
+    mutate(one_pp_multiplier = 100 * p_al * weighted_destination_prob)
+
   c(
     one_pp = weighted.mean(by_cohort$one_pp_multiplier,
                            by_cohort$cohort_weight),
-    per_100 = mean(by_cohort$per_100_multiplier)
+    per_100 = mean(by_cohort$per_100_multiplier),
+    oos_one_pp = weighted.mean(
+      oos_by_origin_cohort$one_pp_multiplier,
+      oos_by_origin_cohort$origin_cohort_weight
+    )
   )
 }
 
@@ -602,12 +654,7 @@ reduced_form_plot_data <- add_diagnostic_plot_statistics(
   residualized_reduced_form
 )
 
-iv_diagnostic_figure_directory <- file.path(
-  'figures',
-  'analysis_mlogit_iv'
-)
-dir.create(iv_diagnostic_figure_directory,
-           recursive = TRUE, showWarnings = FALSE)
+iv_diagnostic_figure_directory <- iv_figure_directory
 
 first_stage_residualized_plot <- ggplot(
   first_stage_plot_data,
@@ -632,9 +679,6 @@ first_stage_residualized_plot <- ggplot(
     max.overlaps = Inf
   ) +
   labs(
-    title = 'Residualized first stage',
-    subtitle = sprintf('Slope = %.4f; unweighted destination-cohort cells',
-                       residualized_first_stage_slope),
     x = 'Residualized shift-share instrument',
     y = 'Residualized OOS-origin share (percentage points)'
   ) +
@@ -663,10 +707,6 @@ reduced_form_residualized_plot <- ggplot(
     max.overlaps = Inf
   ) +
   labs(
-    title = 'Residualized reduced form',
-    subtitle = sprintf('Slope = %.4f; IV ratio = %.4f',
-                       residualized_reduced_form_slope,
-                       residualized_iv_ratio),
     x = 'Residualized shift-share instrument',
     y = 'Residualized recovered mean utility'
   ) +
@@ -784,11 +824,6 @@ leave_one_destination_out_plot <- ggplot(
   ) +
   geom_point(size = 1.8, color = '#2C5D86') +
   labs(
-    title = 'Leave-one-destination-state-out IV estimates',
-    subtitle = paste(
-      'Destination-state-clustered 95% confidence intervals;',
-      'dashed line is the full-sample estimate'
-    ),
     x = expression(hat(gamma)[-j]),
     y = 'Omitted destination state'
   ) +
@@ -1069,18 +1104,17 @@ cat(paste(
 cat('\nInference note\n')
 cat('--------------\n')
 cat(paste(
-  'The second-step table reports conventional standard errors and sandwich',
-  'standard errors clustered by destination state. The one-step benchmark',
-  'retains its origin-state-clustered first-step standard error and is reported',
-  'separately. These in-script standard errors do not propagate estimation error',
-  'in the generated destination-by-cohort fixed effects. The fixed-support',
-  'optional multiplier-bootstrap section below reports that first-step',
-  'uncertainty separately, including for gamma_out and the marginal effects.',
+  'The regression diagnostics above retain conventional and destination-state-',
+  'clustered standard errors for comparison. Preferred table inference uses the',
+  'optional 2,000-replication stratified multiplier bootstrap below, which',
+  'reestimates the first-step MNL and every displayed second-step specification',
+  'in each replication. This propagates uncertainty in the generated',
+  'destination-by-cohort utilities through the reported coefficients and AMEs.',
   'The N_dest distribution above is a precision diagnostic only; it is not used',
   'as a structural weight.\n'
 ))
 
-# Fixed-support multiplier bootstrap (optional) -------------------------------
+# Stratified multiplier bootstrap (optional) ----------------------------------
 
 run_multiplier_bootstrap <- identical(
   Sys.getenv('MLOGIT_IV_RUN_BOOTSTRAP', unset = '0'),
@@ -1155,34 +1189,63 @@ stopifnot(all(target_alabama_dest_cohort %in% names(dest_cohort_fe)))
 # Original point estimates and conditional second-step inference ---------------
 
 original_estimates <- c(
+  home_oos = coef(model_saturated_first_step)[['home_oos']],
+  home_ins = coef(model_saturated_first_step)[['home_ins']],
+  gamma_in_ols_no_controls =
+    coef(model_second_step_ols_no_controls)[['o_share']],
+  gamma_in_iv_no_controls =
+    unclustered_coef(model_second_step_iv_no_controls,
+                     'o_share\\(fit\\)')$estimate,
+  gamma_out_ols_no_controls =
+    coef(model_second_step_ols_no_controls)[['o_share']] +
+      pi_out_minus_in$estimate,
+  gamma_out_iv_no_controls =
+    unclustered_coef(model_second_step_iv_no_controls,
+                     'o_share\\(fit\\)')$estimate +
+      pi_out_minus_in$estimate,
   gamma_in_ols = gamma_in_ols_unclustered$estimate,
   gamma_in_iv = gamma_in_iv_unclustered$estimate,
   gamma_out_ols = gamma_in_ols_unclustered$estimate +
     pi_out_minus_in$estimate,
   gamma_out_iv = gamma_in_iv_unclustered$estimate +
     pi_out_minus_in$estimate,
+  unemp_ols = coef(model_second_step_ols)[['unemp']],
+  net_mig_ols = coef(model_second_step_ols)[['net_mig']],
+  unemp_iv = coef(model_second_step_iv)[['unemp']],
+  net_mig_iv = coef(model_second_step_iv)[['net_mig']],
+  in_state_ame_1pp_ols_no_controls =
+    coef(model_second_step_ols_no_controls)[['o_share']] *
+      saturated_multipliers[['one_pp']],
+  in_state_ame_1pp_iv_no_controls =
+    unclustered_coef(model_second_step_iv_no_controls,
+                     'o_share\\(fit\\)')$estimate *
+      saturated_multipliers[['one_pp']],
+  oos_ame_1pp_ols_no_controls =
+    (coef(model_second_step_ols_no_controls)[['o_share']] +
+       pi_out_minus_in$estimate) *
+      saturated_multipliers[['oos_one_pp']],
+  oos_ame_1pp_iv_no_controls =
+    (unclustered_coef(model_second_step_iv_no_controls,
+                      'o_share\\(fit\\)')$estimate +
+       pi_out_minus_in$estimate) *
+      saturated_multipliers[['oos_one_pp']],
   in_state_ame_1pp_ols = gamma_in_ols_unclustered$estimate *
     saturated_multipliers[['one_pp']],
   in_state_ame_1pp_iv = gamma_in_iv_unclustered$estimate *
     saturated_multipliers[['one_pp']],
+  oos_ame_1pp_ols =
+    (gamma_in_ols_unclustered$estimate + pi_out_minus_in$estimate) *
+      saturated_multipliers[['oos_one_pp']],
+  oos_ame_1pp_iv =
+    (gamma_in_iv_unclustered$estimate + pi_out_minus_in$estimate) *
+      saturated_multipliers[['oos_one_pp']],
   leavers_per_100_oos_ols = gamma_in_ols_unclustered$estimate *
     saturated_multipliers[['per_100']],
   leavers_per_100_oos_iv = gamma_in_iv_unclustered$estimate *
     saturated_multipliers[['per_100']]
 )
 
-conditional_second_step_se <- c(
-  gamma_in_ols = gamma_in_ols_destination_clustered$se,
-  gamma_in_iv = gamma_in_iv_destination_clustered$se,
-  gamma_out_ols = NA_real_,
-  gamma_out_iv = NA_real_,
-  in_state_ame_1pp_ols = NA_real_,
-  in_state_ame_1pp_iv = NA_real_,
-  leavers_per_100_oos_ols = NA_real_,
-  leavers_per_100_oos_iv = NA_real_
-)
-
-# One fixed-support bootstrap replication --------------------------------------
+# One stratified multiplier-bootstrap replication ------------------------------
 
 bootstrap_one <- function(replication) {
   tryCatch({
@@ -1248,6 +1311,19 @@ bootstrap_one <- function(replication) {
       stop('Bootstrap second-step support differs from the preferred 755 cells.')
     }
 
+    bootstrap_ols_no_controls <- felm(
+      delta_rel ~ o_share |
+        factor(d_state) + factor(grad_y),
+      data = bootstrap_second_step
+    )
+
+    bootstrap_iv_no_controls <- felm(
+      delta_rel ~ 1 |
+        factor(d_state) + factor(grad_y) |
+        (o_share ~ z_lso),
+      data = bootstrap_second_step
+    )
+
     bootstrap_ols <- felm(
       delta_rel ~ o_share + unemp + net_mig |
         factor(d_state) + factor(grad_y),
@@ -1273,6 +1349,13 @@ bootstrap_one <- function(replication) {
       bootstrap_first_step,
       'o_share_outdiff'
     )$estimate
+    gamma_in_ols_no_controls_b <- coef(
+      bootstrap_ols_no_controls
+    )[['o_share']]
+    gamma_in_iv_no_controls_b <- unclustered_coef(
+      bootstrap_iv_no_controls,
+      'o_share\\(fit\\)'
+    )$estimate
 
     multiplier_b <- ame_multipliers(
       bootstrap_first_step,
@@ -1283,12 +1366,40 @@ bootstrap_one <- function(replication) {
       replication = replication,
       success = TRUE,
       error = NA_character_,
+      home_oos = coef(bootstrap_first_step)[['home_oos']],
+      home_ins = coef(bootstrap_first_step)[['home_ins']],
+      gamma_in_ols_no_controls = gamma_in_ols_no_controls_b,
+      gamma_in_iv_no_controls = gamma_in_iv_no_controls_b,
+      gamma_out_ols_no_controls =
+        gamma_in_ols_no_controls_b + pi_out_minus_in_b,
+      gamma_out_iv_no_controls =
+        gamma_in_iv_no_controls_b + pi_out_minus_in_b,
       gamma_in_ols = gamma_in_ols_b,
       gamma_in_iv = gamma_in_iv_b,
       gamma_out_ols = gamma_in_ols_b + pi_out_minus_in_b,
       gamma_out_iv = gamma_in_iv_b + pi_out_minus_in_b,
+      unemp_ols = coef(bootstrap_ols)[['unemp']],
+      net_mig_ols = coef(bootstrap_ols)[['net_mig']],
+      unemp_iv = coef(bootstrap_iv)[['unemp']],
+      net_mig_iv = coef(bootstrap_iv)[['net_mig']],
+      in_state_ame_1pp_ols_no_controls =
+        gamma_in_ols_no_controls_b * multiplier_b[['one_pp']],
+      in_state_ame_1pp_iv_no_controls =
+        gamma_in_iv_no_controls_b * multiplier_b[['one_pp']],
+      oos_ame_1pp_ols_no_controls =
+        (gamma_in_ols_no_controls_b + pi_out_minus_in_b) *
+          multiplier_b[['oos_one_pp']],
+      oos_ame_1pp_iv_no_controls =
+        (gamma_in_iv_no_controls_b + pi_out_minus_in_b) *
+          multiplier_b[['oos_one_pp']],
       in_state_ame_1pp_ols = gamma_in_ols_b * multiplier_b[['one_pp']],
       in_state_ame_1pp_iv = gamma_in_iv_b * multiplier_b[['one_pp']],
+      oos_ame_1pp_ols =
+        (gamma_in_ols_b + pi_out_minus_in_b) *
+          multiplier_b[['oos_one_pp']],
+      oos_ame_1pp_iv =
+        (gamma_in_iv_b + pi_out_minus_in_b) *
+          multiplier_b[['oos_one_pp']],
       leavers_per_100_oos_ols = gamma_in_ols_b * multiplier_b[['per_100']],
       leavers_per_100_oos_iv = gamma_in_iv_b * multiplier_b[['per_100']],
       destination_cohort_effects = length(bootstrap_fe),
@@ -1300,12 +1411,28 @@ bootstrap_one <- function(replication) {
       replication = replication,
       success = FALSE,
       error = conditionMessage(e),
+      home_oos = NA_real_,
+      home_ins = NA_real_,
+      gamma_in_ols_no_controls = NA_real_,
+      gamma_in_iv_no_controls = NA_real_,
+      gamma_out_ols_no_controls = NA_real_,
+      gamma_out_iv_no_controls = NA_real_,
       gamma_in_ols = NA_real_,
       gamma_in_iv = NA_real_,
       gamma_out_ols = NA_real_,
       gamma_out_iv = NA_real_,
+      unemp_ols = NA_real_,
+      net_mig_ols = NA_real_,
+      unemp_iv = NA_real_,
+      net_mig_iv = NA_real_,
+      in_state_ame_1pp_ols_no_controls = NA_real_,
+      in_state_ame_1pp_iv_no_controls = NA_real_,
+      oos_ame_1pp_ols_no_controls = NA_real_,
+      oos_ame_1pp_iv_no_controls = NA_real_,
       in_state_ame_1pp_ols = NA_real_,
       in_state_ame_1pp_iv = NA_real_,
+      oos_ame_1pp_ols = NA_real_,
+      oos_ame_1pp_iv = NA_real_,
       leavers_per_100_oos_ols = NA_real_,
       leavers_per_100_oos_iv = NA_real_,
       destination_cohort_effects = NA_integer_,
@@ -1321,6 +1448,7 @@ restart_requested <- identical(
   Sys.getenv('MLOGIT_IV_BOOT_RESTART', unset = '0'),
   '1'
 )
+bootstrap_schema_version <- 3L
 
 bootstrap_draws <- data.frame()
 first_replication <- 1L
@@ -1329,7 +1457,8 @@ if (file.exists(checkpoint_path) && !restart_requested) {
   checkpoint <- readRDS(checkpoint_path)
   compatible_checkpoint <-
     identical(checkpoint$bootstrap_reps, bootstrap_reps) &&
-    identical(checkpoint$bootstrap_seed, bootstrap_seed)
+    identical(checkpoint$bootstrap_seed, bootstrap_seed) &&
+    identical(checkpoint$schema_version, bootstrap_schema_version)
 
   if (compatible_checkpoint) {
     bootstrap_draws <- checkpoint$draws
@@ -1357,6 +1486,7 @@ if (first_replication <= bootstrap_reps) {
       checkpoint <- list(
         bootstrap_reps = bootstrap_reps,
         bootstrap_seed = bootstrap_seed,
+        schema_version = bootstrap_schema_version,
         draws = bootstrap_draws,
         random_seed = get('.Random.seed', envir = .GlobalEnv),
         updated_at = Sys.time()
@@ -1378,7 +1508,7 @@ if (first_replication <= bootstrap_reps) {
   }
 }
 
-# Summarize first-step multiplier uncertainty ----------------------------------
+# Summarize bootstrap uncertainty ----------------------------------------------
 
 successful_draws <- bootstrap_draws %>%
   filter(success)
@@ -1400,7 +1530,7 @@ bootstrap_summary <- bind_rows(lapply(estimands, function(estimand) {
     original_estimate = estimate,
     bootstrap_mean = mean(draws, na.rm = TRUE),
     bootstrap_bias = mean(draws, na.rm = TRUE) - estimate,
-    first_step_multiplier_bootstrap_se = sd(draws, na.rm = TRUE),
+    stratified_multiplier_bootstrap_se = sd(draws, na.rm = TRUE),
     bootstrap_se_monte_carlo_error =
       sd(draws, na.rm = TRUE) /
       sqrt(2 * (length(draws) - 1)),
@@ -1410,8 +1540,6 @@ bootstrap_summary <- bind_rows(lapply(estimands, function(estimand) {
     percentile_ci_upper = percentile_quantiles[2],
     basic_ci_lower = 2 * estimate - percentile_quantiles[2],
     basic_ci_upper = 2 * estimate - percentile_quantiles[1],
-    destination_clustered_second_step_se =
-      conditional_second_step_se[[estimand]],
     successful_replications = length(draws),
     requested_replications = bootstrap_reps,
     row.names = NULL
@@ -1421,6 +1549,7 @@ bootstrap_summary <- bind_rows(lapply(estimands, function(estimand) {
 bootstrap_metadata <- list(
   bootstrap_reps = bootstrap_reps,
   bootstrap_seed = bootstrap_seed,
+  schema_version = bootstrap_schema_version,
   successful_replications = nrow(successful_draws),
   failed_replications = sum(!bootstrap_draws$success),
   cell_level = 'origin_state x destination_state x graduation_cohort',
@@ -1429,8 +1558,9 @@ bootstrap_metadata <- list(
   normalization = 'weights sum to observed N_kc within origin x cohort',
   second_step = 'unweighted 755-cell OLS and exactly identified 2SLS',
   inference_scope = paste(
-    'Bootstrap distribution propagates first-step MNL estimation uncertainty;',
-    'destination-state-clustered second-step SE is reported separately.'
+    'Every displayed first- and second-step coefficient is reestimated in each',
+    'replication. The student-level multiplier draw is stratified by origin',
+    'state x graduation cohort.'
   ),
   completed_at = Sys.time()
 )
@@ -1444,7 +1574,7 @@ saveRDS(
   final_rds_path
 )
 
-cat('\nFixed-support multiplier bootstrap complete\n')
+cat('\nStratified multiplier bootstrap complete\n')
 cat('-------------------------------------------\n')
 print(bootstrap_summary, digits = 5, row.names = FALSE)
 cat('\nSuccessful replications:', nrow(successful_draws), '/',
@@ -2040,6 +2170,314 @@ cumulative_leavers_bootstrap_ci <- normal_bootstrap_ci(
   cumulative_leavers_bootstrap
 )
 
+# Historical net-migration decomposition --------------------------------------
+
+# Preserve the original paper's enrollment-cohort convention. Actual and
+# counterfactual OOS counts are first-time first-year enrollments, assigned to
+# their likely graduation cohort by adding four years. The counterfactual holds
+# the aggregate OOS share at its 2006 value while allowing total enrollment to
+# follow its observed path.
+historical_ipeds_origin_counts <- readRDS(
+  paste0(pathHome, 'data/selectivity_iv.rds')
+) %>%
+  ungroup() %>%
+  left_join(states, by = c('STABBR' = 'originState')) %>%
+  mutate(grad_y = y + 4L) %>%
+  filter(grad_y %in% counterfactual_years, !is.na(state)) %>%
+  group_by(grad_y) %>%
+  summarize(
+    total_first_year_enrollment = sum(enroll),
+    actual_oos_first_year_enrollment = sum(enroll[state != 'Alabama']),
+    .groups = 'drop'
+  ) %>%
+  arrange(grad_y)
+
+oos_enrollment_share_2006 <- historical_ipeds_origin_counts %>%
+  filter(grad_y == base_year) %>%
+  summarize(
+    share = actual_oos_first_year_enrollment /
+      total_first_year_enrollment,
+    .groups = 'drop'
+  ) %>%
+  pull(share)
+
+historical_net_migration_by_cohort <-
+  historical_ipeds_origin_counts %>%
+  mutate(
+    fixed_share_oos_first_year_enrollment =
+      oos_enrollment_share_2006 * total_first_year_enrollment,
+    incremental_oos_first_year_enrollment =
+      actual_oos_first_year_enrollment -
+      fixed_share_oos_first_year_enrollment
+  ) %>%
+  left_join(
+    counterfactual_oos_by_cohort %>%
+      select(
+        grad_y,
+        actual_oos_retention_rate = actual_retention_rate,
+        fixed_share_oos_retention_rate =
+          fixed_share_retention_rate_iv
+      ),
+    by = 'grad_y'
+  ) %>%
+  left_join(
+    counterfactual_in_state_by_cohort %>%
+      select(
+        grad_y,
+        in_state_first_year_enrollment,
+        induced_in_state_leavers = induced_leavers_iv
+      ),
+    by = 'grad_y'
+  )
+
+stopifnot(
+  nrow(historical_net_migration_by_cohort) ==
+    length(counterfactual_years),
+  !anyNA(historical_net_migration_by_cohort),
+  abs(historical_net_migration_by_cohort$
+        incremental_oos_first_year_enrollment[
+          historical_net_migration_by_cohort$grad_y == base_year
+        ]) < 1e-10
+)
+
+# Attendance-effect calibrations. The preferred specification fixes p0 across
+# cohorts and chooses it so that p1 - p0 = 0.10 in the 2008 peer environment.
+# The upper bound sets p0 to zero, so every observed Alabama resident among OOS
+# UA students is attributed to attending UA.
+historical_reference_retention <-
+  historical_net_migration_by_cohort %>%
+  filter(grad_y == attendance_calibration_year) %>%
+  pull(actual_oos_retention_rate)
+
+groen_effect_standard_error <- 0.016
+
+historical_attendance_calibrations <- data.frame(
+  scenario = c(
+    'Preferred: fixed p0, 10pp effect in 2008',
+    'Upper bound: no-UA retention p0 = 0'
+  ),
+  calibration = c(
+    'preferred', 'upper_bound'
+  ),
+  no_ua_retention = c(
+    historical_reference_retention - attendance_effect_at_calibration,
+    0
+  ),
+  reference_attendance_effect = c(
+    attendance_effect_at_calibration,
+    historical_reference_retention
+  ),
+  stringsAsFactors = FALSE
+)
+
+historical_net_migration_by_scenario <- crossing(
+  historical_net_migration_by_cohort,
+  historical_attendance_calibrations
+) %>%
+  mutate(
+    attendance_effect_actual = actual_oos_retention_rate -
+      no_ua_retention,
+    attendance_effect_fixed_share = fixed_share_oos_retention_rate -
+      no_ua_retention,
+    direct_oos_attendance_residents =
+      incremental_oos_first_year_enrollment *
+      attendance_effect_fixed_share,
+    oos_peer_residents =
+      actual_oos_first_year_enrollment *
+      (actual_oos_retention_rate -
+         fixed_share_oos_retention_rate),
+    in_state_incumbent_peer_residents = -induced_in_state_leavers,
+    total_oos_residents = direct_oos_attendance_residents +
+      oos_peer_residents,
+    net_alabama_residents = total_oos_residents +
+      in_state_incumbent_peer_residents
+  )
+
+historical_net_migration_point_summary <-
+  historical_net_migration_by_scenario %>%
+  group_by(
+    scenario, calibration, no_ua_retention,
+    reference_attendance_effect
+  ) %>%
+  summarize(
+    incremental_oos_students =
+      sum(incremental_oos_first_year_enrollment),
+    direct_oos_attendance_residents =
+      sum(direct_oos_attendance_residents),
+    oos_peer_residents = sum(oos_peer_residents),
+    total_oos_residents = sum(total_oos_residents),
+    in_state_incumbent_peer_residents =
+      sum(in_state_incumbent_peer_residents),
+    net_alabama_residents = sum(net_alabama_residents),
+    .groups = 'drop'
+  )
+
+# Bootstrap the cohort-specific observed OOS retention rates. Because the
+# saturated first step reproduces these rates, a student-level multiplier draw
+# at the origin x destination x cohort cell, normalized within origin x cohort,
+# propagates their sampling uncertainty without another model fit.
+historical_oos_choice_counts <- join_counterfactual %>%
+  filter(o_state != 'Alabama') %>%
+  count(grad_y, o_state, d_state, name = 'n_choice') %>%
+  arrange(grad_y, o_state, d_state) %>%
+  mutate(
+    origin_cohort = interaction(grad_y, o_state, drop = TRUE),
+    cohort_id = match(grad_y, counterfactual_years)
+  )
+
+historical_oos_origin_cohort_id <- as.integer(factor(
+  historical_oos_choice_counts$origin_cohort
+))
+historical_oos_origin_cohort_totals <- as.numeric(rowsum(
+  historical_oos_choice_counts$n_choice,
+  historical_oos_origin_cohort_id,
+  reorder = TRUE
+))
+historical_oos_cohort_totals <- join_counterfactual %>%
+  filter(o_state != 'Alabama') %>%
+  count(grad_y, name = 'linked_oos_students') %>%
+  arrange(match(grad_y, counterfactual_years)) %>%
+  pull(linked_oos_students)
+
+historical_bootstrap_reps <- length(iv_gamma_bootstrap_draws)
+historical_actual_oos_retention_bootstrap_matrix <- matrix(
+  NA_real_,
+  nrow = length(counterfactual_years),
+  ncol = historical_bootstrap_reps
+)
+
+set.seed(9292028L)
+for (b in seq_len(historical_bootstrap_reps)) {
+  gamma_cell_counts <- rgamma(
+    nrow(historical_oos_choice_counts),
+    shape = historical_oos_choice_counts$n_choice,
+    rate = 1
+  )
+  gamma_origin_cohort_totals <- as.numeric(rowsum(
+    gamma_cell_counts,
+    historical_oos_origin_cohort_id,
+    reorder = TRUE
+  ))
+  normalized_cell_counts <- gamma_cell_counts *
+    historical_oos_origin_cohort_totals[
+      historical_oos_origin_cohort_id
+    ] /
+    gamma_origin_cohort_totals[historical_oos_origin_cohort_id]
+
+  alabama_counts_by_cohort <- rowsum(
+    normalized_cell_counts *
+      (historical_oos_choice_counts$d_state == 'Alabama'),
+    historical_oos_choice_counts$cohort_id,
+    reorder = TRUE
+  )[, 1]
+  historical_actual_oos_retention_bootstrap_matrix[, b] <-
+    alabama_counts_by_cohort / historical_oos_cohort_totals
+}
+
+stopifnot(
+  all(dim(historical_actual_oos_retention_bootstrap_matrix) ==
+        c(length(counterfactual_years), historical_bootstrap_reps)),
+  max(abs(
+    historical_net_migration_by_cohort$actual_oos_retention_rate -
+      (1 - counterfactual_oos_by_cohort$observed_outmigration_rate)
+  )) < 1e-8
+)
+
+# Combine the existing multiplier draws for the counterfactual probabilities
+# with the observed-retention bootstrap above and independent draws from
+# Groen's reported estimate.
+historical_oos_fixed_retention_bootstrap_matrix <-
+  1 - oos_fixed_share_bootstrap_matrix
+historical_actual_oos_retention <-
+  historical_net_migration_by_cohort$actual_oos_retention_rate
+historical_actual_oos_enrollment <-
+  historical_net_migration_by_cohort$
+    actual_oos_first_year_enrollment
+historical_incremental_oos_enrollment <-
+  historical_net_migration_by_cohort$
+    incremental_oos_first_year_enrollment
+
+historical_oos_peer_bootstrap_draws <- colSums(
+  historical_actual_oos_enrollment *
+    (historical_actual_oos_retention_bootstrap_matrix -
+       historical_oos_fixed_retention_bootstrap_matrix)
+)
+historical_in_state_peer_bootstrap_draws <-
+  -cumulative_leavers_bootstrap
+
+set.seed(9292027L)
+groen_standard_normal_draws <- qnorm(
+  (seq_along(iv_gamma_bootstrap_draws) - 0.5) /
+    length(iv_gamma_bootstrap_draws)
+)
+groen_standard_normal_draws <- sample(groen_standard_normal_draws)
+groen_standard_normal_draws <-
+  (groen_standard_normal_draws - mean(groen_standard_normal_draws)) /
+  sd(groen_standard_normal_draws)
+groen_effect_bootstrap_draws <- attendance_effect_at_calibration +
+  groen_effect_standard_error * groen_standard_normal_draws
+
+historical_direct_bootstrap_draws <- list(
+  preferred = colSums(sweep(
+    sweep(
+      historical_oos_fixed_retention_bootstrap_matrix,
+      2,
+      historical_actual_oos_retention_bootstrap_matrix[
+        match(attendance_calibration_year, counterfactual_years),
+      ] - groen_effect_bootstrap_draws,
+      '-'
+    ),
+    1,
+    historical_incremental_oos_enrollment,
+    '*'
+  )),
+  upper_bound = colSums(sweep(
+    historical_oos_fixed_retention_bootstrap_matrix,
+    1,
+    historical_incremental_oos_enrollment,
+    '*'
+  ))
+)
+
+historical_net_migration_bootstrap_summary <- bind_rows(lapply(
+  historical_attendance_calibrations$calibration,
+  function(calibration_name) {
+    direct_draws <- historical_direct_bootstrap_draws[[calibration_name]]
+    total_oos_draws <- direct_draws +
+      historical_oos_peer_bootstrap_draws
+    net_draws <- total_oos_draws +
+      historical_in_state_peer_bootstrap_draws
+    data.frame(
+      calibration = calibration_name,
+      direct_oos_attendance_se = sd(direct_draws),
+      oos_peer_residents_se =
+        sd(historical_oos_peer_bootstrap_draws),
+      total_oos_residents_se = sd(total_oos_draws),
+      in_state_incumbent_peer_se =
+        sd(historical_in_state_peer_bootstrap_draws),
+      net_alabama_residents_se = sd(net_draws),
+      net_ci_lower = historical_net_migration_point_summary$
+        net_alabama_residents[
+          historical_net_migration_point_summary$calibration ==
+            calibration_name
+        ] - qnorm(0.975) * sd(net_draws),
+      net_ci_upper = historical_net_migration_point_summary$
+        net_alabama_residents[
+          historical_net_migration_point_summary$calibration ==
+            calibration_name
+        ] + qnorm(0.975) * sd(net_draws),
+      row.names = NULL
+    )
+  }
+))
+
+historical_net_migration_summary <-
+  historical_net_migration_point_summary %>%
+  left_join(
+    historical_net_migration_bootstrap_summary,
+    by = 'calibration'
+  )
+
 counterfactual_in_state_summary <- data.frame(
   statistic = c(
     'IV gamma_in',
@@ -2149,18 +2587,13 @@ counterfactual_oos_summary <- data.frame(
 
 # Figures and saved results -----------------------------------------------------
 
-counterfactual_figure_directory <- file.path(
-  'figures',
-  'analysis_mlogit_iv'
-)
-dir.create(counterfactual_figure_directory,
-           recursive = TRUE, showWarnings = FALSE)
+counterfactual_figure_directory <- iv_figure_directory
 
 counterfactual_main_plot_data <- counterfactual_in_state_by_cohort %>%
   select(
     grad_y,
-    `Actual OOS Shares` = actual_outmigration_rate,
-    `Fixed 2006 OOS Shares (IV)` = fixed_share_outmigration_rate_iv
+    Actual = actual_outmigration_rate,
+    `Fixed OOS Shares` = fixed_share_outmigration_rate_iv
   ) %>%
   pivot_longer(
     cols = -grad_y,
@@ -2174,7 +2607,7 @@ counterfactual_main_plot_data <- counterfactual_in_state_by_cohort %>%
   mutate(
     scenario = factor(
       scenario,
-      levels = c('Actual OOS Shares', 'Fixed 2006 OOS Shares (IV)')
+      levels = c('Actual', 'Fixed OOS Shares')
     )
   )
 
@@ -2206,18 +2639,14 @@ counterfactual_in_state_plot <- ggplot(
   geom_line(linewidth = 1, na.rm = TRUE) +
   geom_point(size = 1.5, na.rm = TRUE) +
   scale_color_manual(values = c(
-    'Actual OOS Shares' = '#440154FF',
-    'Fixed 2006 OOS Shares (IV)' = '#21908CFF'
+    'Actual' = '#440154FF',
+    'Fixed OOS Shares' = '#21908CFF'
   )) +
   scale_x_continuous(breaks = seq(2006, 2023, by = 2)) +
   labs(
     x = 'Graduation Year',
     y = 'Share Out-Migrating (%)',
-    color = NULL,
-    subtitle = paste(
-      'Preferred IV coefficient; first-step predictions include all',
-      '2006-2023 cohorts'
-    )
+    color = NULL
   ) +
   theme_classic(base_size = 11) +
   theme(
@@ -2231,8 +2660,8 @@ counterfactual_in_state_plot <- ggplot(
 counterfactual_oos_plot_data <- counterfactual_oos_by_cohort %>%
   select(
     grad_y,
-    `Actual OOS Shares` = actual_outmigration_rate,
-    `Fixed 2006 OOS Shares (IV)` = fixed_share_outmigration_rate_iv
+    Actual = actual_outmigration_rate,
+    `Fixed OOS Shares` = fixed_share_outmigration_rate_iv
   ) %>%
   pivot_longer(
     cols = -grad_y,
@@ -2243,7 +2672,7 @@ counterfactual_oos_plot_data <- counterfactual_oos_by_cohort %>%
   mutate(
     scenario = factor(
       scenario,
-      levels = c('Actual OOS Shares', 'Fixed 2006 OOS Shares (IV)')
+      levels = c('Actual', 'Fixed OOS Shares')
     )
   )
 
@@ -2275,18 +2704,14 @@ counterfactual_oos_plot <- ggplot(
   geom_line(linewidth = 1, na.rm = TRUE) +
   geom_point(size = 1.5, na.rm = TRUE) +
   scale_color_manual(values = c(
-    'Actual OOS Shares' = '#440154FF',
-    'Fixed 2006 OOS Shares (IV)' = '#21908CFF'
+    'Actual' = '#440154FF',
+    'Fixed OOS Shares' = '#21908CFF'
   )) +
   scale_x_continuous(breaks = seq(2006, 2023, by = 2)) +
   labs(
     x = 'Graduation Year',
     y = 'OOS Student Share Out-Migrating (%)',
-    color = NULL,
-    subtitle = paste(
-      'Conditional on attending UA; Groen calibration does not enter',
-      'the plotted counterfactual'
-    )
+    color = NULL
   ) +
   theme_classic(base_size = 11) +
   theme(
@@ -2343,11 +2768,7 @@ counterfactual_in_state_comparison_plot <- ggplot(
     x = 'Graduation Year',
     y = 'Share Out-Migrating (%)',
     color = NULL,
-    linetype = NULL,
-    subtitle = paste(
-      'IV counterfactual versus two-step OLS and the previous',
-      'one-shot MNL benchmark'
-    )
+    linetype = NULL
   ) +
   theme_classic(base_size = 11) +
   theme(
@@ -2378,6 +2799,48 @@ ggsave(
   width = 7, height = 5, dpi = 300
 )
 
+counterfactual_migration_combined_plot <- ggpubr::ggarrange(
+  counterfactual_in_state_plot +
+    labs(
+      title = 'In-State Students',
+      y = 'Share Out-Migrating (%)'
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 11),
+      legend.text = element_text(size = 12)
+    ),
+  counterfactual_oos_plot +
+    labs(
+      title = 'Out-of-State Students',
+      y = NULL
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 11),
+      legend.text = element_text(size = 12)
+    ),
+  ncol = 2,
+  nrow = 1,
+  common.legend = TRUE,
+  legend = 'bottom',
+  align = 'hv'
+)
+
+ggsave(
+  file.path(
+    counterfactual_figure_directory,
+    'counterfactual_migration_probabilities_combined.png'
+  ),
+  counterfactual_migration_combined_plot,
+  width = 9.5,
+  height = 4.5,
+  dpi = 300,
+  bg = 'white'
+)
+
 cat('\nIV counterfactual in-state out-migration results\n')
 cat('------------------------------------------------\n')
 print(counterfactual_in_state_summary, digits = 5, row.names = FALSE)
@@ -2385,6 +2848,10 @@ print(counterfactual_in_state_summary, digits = 5, row.names = FALSE)
 cat('\nIV counterfactual OOS out-migration results\n')
 cat('-------------------------------------------\n')
 print(counterfactual_oos_summary, digits = 5, row.names = FALSE)
+
+cat('\nHistorical three-channel net-migration results\n')
+cat('----------------------------------------------\n')
+print(historical_net_migration_summary, digits = 6, row.names = FALSE)
 
 cat('\nCounterfactual construction note\n')
 cat('--------------------------------\n')
@@ -2896,8 +3363,7 @@ exposure_event_study_plot <- ggplot(
     strip.text = element_text(face = 'bold')
   )
 
-figure_directory <- file.path('figures', 'analysis_mlogit_iv')
-dir.create(figure_directory, recursive = TRUE, showWarnings = FALSE)
+figure_directory <- iv_figure_directory
 event_study_figure_path <- file.path(
   figure_directory,
   'shift_share_baseline_exposure_placebos.png'
@@ -3570,6 +4036,318 @@ major_ame_results <- bind_rows(
 ) %>%
   mutate(ame_pp_for_1pp_oos_share = gamma * ame_multiplier) %>%
   arrange(estimator, residency, match(major, major_levels))
+
+# Major-specific multiplier bootstrap (optional) -------------------------------
+
+# This is separate from the aggregate bootstrap above so Table 7 can be
+# reproduced without rerunning bootstrap specifications that it does not use.
+# Within each origin x cohort x major choice set, Gamma cell weights implement
+# the student-level Exp(1) multiplier bootstrap while preserving the observed
+# choice-set total and every destination-cohort cell in every replication.
+run_major_multiplier_bootstrap <- identical(
+  Sys.getenv('MLOGIT_IV_RUN_MAJOR_BOOTSTRAP', unset = '0'),
+  '1'
+)
+
+major_bootstrap_results_path <- file.path(
+  'tmp', 'analysis_mlogit_iv_major_bootstrap_results.rds'
+)
+
+if (run_major_multiplier_bootstrap) {
+  major_bootstrap_reps <- as.integer(Sys.getenv(
+    'MLOGIT_IV_MAJOR_BOOT_REPS', unset = '2000'
+  ))
+  major_bootstrap_seed <- 9292026L
+  major_checkpoint_every <- 100L
+  major_bootstrap_schema_version <- 1L
+  major_bootstrap_checkpoint_path <- file.path(
+    'tmp', 'analysis_mlogit_iv_major_bootstrap_checkpoint.rds'
+  )
+  dir.create('tmp', recursive = TRUE, showWarnings = FALSE)
+
+  stopifnot(
+    length(major_bootstrap_reps) == 1L,
+    !is.na(major_bootstrap_reps),
+    major_bootstrap_reps > 1L,
+    nrow(choice_cells_saturated_major) == nrow(distinct(
+      choice_cells_saturated_major,
+      o_state, alternative, grad_y, major
+    ))
+  )
+
+  major_base_choice_counts <- choice_cells_saturated_major$n_choice
+  major_positive_choice_cell <- major_base_choice_counts > 0
+  major_stratum_id <- as.integer(factor(
+    choice_cells_saturated_major$origin_cohort_major
+  ))
+  major_stratum_totals <- as.numeric(rowsum(
+    major_base_choice_counts,
+    major_stratum_id,
+    reorder = TRUE
+  ))
+  stopifnot(all(major_stratum_totals > 0))
+
+  major_target_dest_cohort <- delta_second_stage_major$dest_cohort
+  major_target_alabama_dest_cohort <- paste0(
+    'Alabama__', delta_second_stage_major$grad_y
+  )
+  major_second_step_template <- delta_second_stage_major
+
+  major_bootstrap_formula <- as.formula(paste(
+    'n_choice_boot ~',
+    paste(
+      c(
+        'home_oos', 'home_ins', 'o_share_outdiff',
+        share_deviation_terms,
+        sprintf('i(grad_y, al_oos, ref = %d)', base_year)
+      ),
+      collapse = ' + '
+    ),
+    '| origin_cohort_major + dest_cohort'
+  ))
+
+  major_point_ames <- major_ame_results %>%
+    filter(estimator == 'Two-step IV (unweighted cells)') %>%
+    transmute(
+      estimand = paste(
+        if_else(residency == 'In-state', 'in', 'out'),
+        major_keys[major],
+        sep = '__'
+      ),
+      major,
+      residency,
+      estimate = ame_pp_for_1pp_oos_share
+    )
+  major_estimand_names <- major_point_ames$estimand
+
+  major_bootstrap_one <- function(replication) {
+    tryCatch({
+      gamma_counts <- numeric(length(major_base_choice_counts))
+      gamma_counts[major_positive_choice_cell] <- rgamma(
+        sum(major_positive_choice_cell),
+        shape = major_base_choice_counts[major_positive_choice_cell],
+        rate = 1
+      )
+      gamma_stratum_totals <- as.numeric(rowsum(
+        gamma_counts,
+        major_stratum_id,
+        reorder = TRUE
+      ))
+
+      bootstrap_cells <- choice_cells_saturated_major
+      bootstrap_cells$n_choice_boot <- gamma_counts *
+        major_stratum_totals[major_stratum_id] /
+        gamma_stratum_totals[major_stratum_id]
+
+      normalized_totals <- as.numeric(rowsum(
+        bootstrap_cells$n_choice_boot,
+        major_stratum_id,
+        reorder = TRUE
+      ))
+      if (max(abs(normalized_totals - major_stratum_totals)) > 1e-8) {
+        stop('Origin-cohort-major multiplier normalization failed.')
+      }
+
+      bootstrap_first_step <- fepois(
+        major_bootstrap_formula,
+        data = bootstrap_cells,
+        notes = FALSE
+      )
+      bootstrap_fe <- fixef(
+        bootstrap_first_step, notes = FALSE
+      )[['dest_cohort']]
+
+      if (!all(major_target_dest_cohort %in% names(bootstrap_fe)) ||
+          !all(major_target_alabama_dest_cohort %in% names(bootstrap_fe))) {
+        stop('A destination-cohort fixed effect is missing from the bootstrap fit.')
+      }
+
+      bootstrap_second_step <- major_second_step_template
+      bootstrap_second_step$delta_rel <- unname(
+        bootstrap_fe[major_target_dest_cohort] -
+          bootstrap_fe[major_target_alabama_dest_cohort]
+      )
+      if (nrow(bootstrap_second_step) != 755L ||
+          anyNA(bootstrap_second_step$delta_rel)) {
+        stop('Bootstrap second-step support differs from the preferred 755 cells.')
+      }
+
+      bootstrap_iv <- felm(
+        delta_rel ~ unemp + net_mig |
+          factor(d_state) + factor(grad_y) |
+          (o_share ~ z_lso),
+        data = bootstrap_second_step
+      )
+      gamma_in_mean_b <- felm_estimate(
+        bootstrap_iv, 'o_share\\(fit\\)'
+      )
+      pi_out_minus_in_b <- fixest_estimate(
+        bootstrap_first_step, 'o_share_outdiff'
+      )
+      eta_in_b <- recover_major_deviations(
+        bootstrap_first_step, 'in', in_major_weights
+      )
+      eta_out_b <- recover_major_deviations(
+        bootstrap_first_step, 'out', out_major_weights
+      )
+      gamma_in_b <- gamma_in_mean_b + eta_in_b
+      gamma_out_b <- gamma_in_mean_b + pi_out_minus_in_b + eta_out_b
+
+      multiplier_b <- major_ame_multipliers(
+        bootstrap_first_step, bootstrap_cells, join_major
+      )
+      ame_b <- bind_rows(
+        data.frame(
+          residency = 'In-state', major = major_levels,
+          gamma = unname(gamma_in_b), stringsAsFactors = FALSE
+        ),
+        data.frame(
+          residency = 'OOS', major = major_levels,
+          gamma = unname(gamma_out_b), stringsAsFactors = FALSE
+        )
+      ) %>%
+        left_join(multiplier_b, by = c('residency', 'major')) %>%
+        mutate(
+          estimand = paste(
+            if_else(residency == 'In-state', 'in', 'out'),
+            major_keys[major],
+            sep = '__'
+          ),
+          ame = gamma * ame_multiplier
+        )
+
+      ame_vector <- setNames(ame_b$ame, ame_b$estimand)[major_estimand_names]
+      if (anyNA(ame_vector)) {
+        stop('One or more major-specific AMEs are missing.')
+      }
+
+      as.data.frame(as.list(c(
+        replication = replication,
+        success = TRUE,
+        setNames(unname(ame_vector), major_estimand_names)
+      )), check.names = FALSE)
+    }, error = function(e) {
+      failure <- as.list(c(
+        replication = replication,
+        success = FALSE,
+        setNames(rep(NA_real_, length(major_estimand_names)),
+                 major_estimand_names)
+      ))
+      failure$error <- conditionMessage(e)
+      as.data.frame(failure, check.names = FALSE)
+    })
+  }
+
+  major_restart_requested <- identical(
+    Sys.getenv('MLOGIT_IV_MAJOR_BOOT_RESTART', unset = '0'), '1'
+  )
+  major_bootstrap_draws <- data.frame()
+  major_first_replication <- 1L
+
+  if (file.exists(major_bootstrap_checkpoint_path) &&
+      !major_restart_requested) {
+    checkpoint <- readRDS(major_bootstrap_checkpoint_path)
+    compatible_checkpoint <-
+      identical(checkpoint$bootstrap_reps, major_bootstrap_reps) &&
+      identical(checkpoint$bootstrap_seed, major_bootstrap_seed) &&
+      identical(checkpoint$schema_version,
+                major_bootstrap_schema_version)
+    if (compatible_checkpoint) {
+      major_bootstrap_draws <- checkpoint$draws
+      major_first_replication <- nrow(major_bootstrap_draws) + 1L
+      assign('.Random.seed', checkpoint$random_seed, envir = .GlobalEnv)
+      cat('Resuming major bootstrap after replication',
+          nrow(major_bootstrap_draws), '\n')
+    }
+  }
+
+  if (major_first_replication == 1L) {
+    RNGkind("L'Ecuyer-CMRG")
+    set.seed(major_bootstrap_seed)
+  }
+  major_bootstrap_start_time <- Sys.time()
+
+  if (major_first_replication <= major_bootstrap_reps) {
+    for (b in major_first_replication:major_bootstrap_reps) {
+      major_bootstrap_draws <- bind_rows(
+        major_bootstrap_draws,
+        major_bootstrap_one(b)
+      )
+      if (b %% major_checkpoint_every == 0L ||
+          b == major_bootstrap_reps) {
+        checkpoint <- list(
+          bootstrap_reps = major_bootstrap_reps,
+          bootstrap_seed = major_bootstrap_seed,
+          schema_version = major_bootstrap_schema_version,
+          draws = major_bootstrap_draws,
+          random_seed = get('.Random.seed', envir = .GlobalEnv),
+          updated_at = Sys.time()
+        )
+        saveRDS(checkpoint, major_bootstrap_checkpoint_path)
+        elapsed_minutes <- as.numeric(difftime(
+          Sys.time(), major_bootstrap_start_time, units = 'mins'
+        ))
+        cat(sprintf(
+          paste0('Completed major bootstrap %d/%d replications ',
+                 '(%.2f minutes this run; %d failures).\n'),
+          b, major_bootstrap_reps, elapsed_minutes,
+          sum(!as.logical(major_bootstrap_draws$success))
+        ))
+        flush.console()
+      }
+    }
+  }
+
+  major_successful_draws <- major_bootstrap_draws %>%
+    filter(as.logical(success))
+  major_bootstrap_summary <- major_point_ames %>%
+    rowwise() %>%
+    mutate(
+      bootstrap_mean = mean(major_successful_draws[[estimand]], na.rm = TRUE),
+      bootstrap_se = sd(major_successful_draws[[estimand]], na.rm = TRUE),
+      normal_ci_lower = estimate - qnorm(0.975) * bootstrap_se,
+      normal_ci_upper = estimate + qnorm(0.975) * bootstrap_se,
+      p_value = 2 * pnorm(-abs(estimate / bootstrap_se)),
+      successful_replications = nrow(major_successful_draws)
+    ) %>%
+    ungroup()
+
+  saveRDS(
+    list(
+      metadata = list(
+        bootstrap_reps = major_bootstrap_reps,
+        bootstrap_seed = major_bootstrap_seed,
+        schema_version = major_bootstrap_schema_version,
+        successful_replications = nrow(major_successful_draws),
+        failed_replications = sum(
+          !as.logical(major_bootstrap_draws$success)
+        ),
+        cell_level = paste(
+          'origin_state x destination_state x graduation_cohort x major'
+        ),
+        strata = 'origin_state x graduation_cohort x major',
+        multiplier = 'iid student Exp(1), aggregated as Gamma(n_cell, 1)',
+        second_step = paste(
+          'unweighted 755-cell 2SLS with destination and cohort fixed effects',
+          'and unemployment and net-migration controls'
+        ),
+        completed_at = Sys.time()
+      ),
+      summary = major_bootstrap_summary,
+      draws = major_bootstrap_draws
+    ),
+    major_bootstrap_results_path
+  )
+
+  cat('\nMajor-specific multiplier bootstrap complete\n')
+  cat('--------------------------------------------\n')
+  print(major_bootstrap_summary, digits = 5, row.names = FALSE)
+  cat('Full RDS:', major_bootstrap_results_path, '\n')
+} else if (file.exists(major_bootstrap_results_path)) {
+  major_bootstrap_summary <- readRDS(
+    major_bootstrap_results_path
+  )$summary
+}
 
 # Output ------------------------------------------------------------------------
 
